@@ -1,0 +1,64 @@
+package grouponekingdown.onekingdown.kingdom;
+
+import grouponekingdown.onekingdown.Onekingdown;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.Identifier;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
+
+public record KingdomHudPayload(
+        int ores,
+        int wood,
+        int guards,
+        int food,
+        int animals,
+        int monsters,
+        int level,
+        int tier
+) implements CustomPacketPayload {
+
+    public static final CustomPacketPayload.Type<KingdomHudPayload> TYPE =
+            new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(Onekingdown.MODID, "kingdom_hud"));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, KingdomHudPayload> STREAM_CODEC =
+            CustomPacketPayload.codec(KingdomHudPayload::write, KingdomHudPayload::read);
+
+    // Estado mais recente recebido no cliente para renderizacao na tela
+    public static volatile KingdomHudPayload clientState = null;
+
+    private static void write(KingdomHudPayload payload, RegistryFriendlyByteBuf buf) {
+        buf.writeInt(payload.ores);
+        buf.writeInt(payload.wood);
+        buf.writeInt(payload.guards);
+        buf.writeInt(payload.food);
+        buf.writeInt(payload.animals);
+        buf.writeInt(payload.monsters);
+        buf.writeInt(payload.level);
+        buf.writeInt(payload.tier);
+    }
+
+    private static KingdomHudPayload read(RegistryFriendlyByteBuf buf) {
+        return new KingdomHudPayload(
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt()
+        );
+    }
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+        return TYPE;
+    }
+
+    public static void registerPayloads(RegisterPayloadHandlersEvent event) {
+        PayloadRegistrar registrar = event.registrar("1");
+        registrar.playToClient(TYPE, STREAM_CODEC, (payload, context) -> clientState = payload);
+    }
+}
