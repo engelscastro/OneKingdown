@@ -17,27 +17,40 @@ public class KingdomHudOverlay {
         GuiGraphicsExtractor gui = event.getGuiGraphics();
         Font font = mc.font;
 
-        int x = 8;
-        int y = 8;
-        int width = 148;
-        int height = 86;
+        float scale = 0.70f;
+        int boxWidth = 178;
+        int boxHeight = 64;
+        int margin = 5;
 
-        // Fundo escuro semitransparente + borda dourada
-        gui.fill(x, y, x + width, y + height, 0xB0121622);
-        gui.outline(x, y, width, height, 0xFFD4AF37);
+        int x = gui.guiWidth() - Math.round(boxWidth * scale) - margin;
+        int y = margin;
 
-        // Cabecalho do Reino
-        gui.text(font, "Reino Nv." + data.level() + " (Tier " + data.tier() + ")", x + 6, y + 6, 0xFFFFD700);
-        gui.horizontalLine(x + 4, x + width - 5, y + 17, 0x80D4AF37);
+        gui.pose().pushMatrix();
+        gui.pose().translate(x, y);
+        gui.pose().scale(scale, scale);
 
-        // Status de recursos e entidades do territorio
-        gui.text(font, "Minerios: " + data.ores(), x + 6, y + 21, 0xFF55FFFF);
-        gui.text(font, "Madeiras: " + data.wood(), x + 6, y + 31, 0xFFDEB887);
-        gui.text(font, "Comida:   " + data.food(), x + 6, y + 41, 0xFF7CFC00);
-        gui.text(font, "Guardas:  " + data.guards(), x + 6, y + 51, 0xFF6495ED);
-        gui.text(font, "Animais:  " + data.animals(), x + 6, y + 61, 0xFFFFE4B5);
+        // Fundo discreto semitransparente e borda dourada fina
+        gui.fill(0, 0, boxWidth, boxHeight, 0x6610141D);
+        gui.outline(0, 0, boxWidth, boxHeight, 0x77D4AF37);
+
+        // Cabecalho
+        gui.text(font, "Reino Nv." + data.level() + " (Tier " + data.tier() + ")", 6, 5, 0xFFFFD700);
+        gui.horizontalLine(5, boxWidth - 6, 15, 0x55D4AF37);
+
+        // Coluna esquerda: Recursos e Mundo
+        gui.text(font, "Minerios: " + data.ores(), 6, 19, 0xFF55FFFF);
+        gui.text(font, "Madeiras: " + data.wood(), 6, 30, 0xFFDEB887);
+        gui.text(font, "Comida:   " + data.food(), 6, 41, 0xFF7CFC00);
+        gui.text(font, "Animais:  " + data.animals(), 6, 52, 0xFFFFE4B5);
+
+        // Coluna direita: Tropas, Trabalhadores e Ameacas
+        gui.text(font, "Guardas:     " + data.guards(), 92, 19, 0xFF6495ED);
+        gui.text(font, "Mineiros:    " + data.miners(), 92, 30, 0xFF87CEFA);
+        gui.text(font, "Fazendeiros: " + data.farmers(), 92, 41, 0xFF98FB98);
 
         int monsterColor = data.monsters() > 0 ? 0xFFFF5555 : 0xFFAAAAAA;
-        gui.text(font, "Monstros: " + data.monsters(), x + 6, y + 71, monsterColor);
+        gui.text(font, "Monstros:    " + data.monsters(), 92, 52, monsterColor);
+
+        gui.pose().popMatrix();
     }
 }

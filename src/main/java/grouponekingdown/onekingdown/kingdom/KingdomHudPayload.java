@@ -11,8 +11,10 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 public record KingdomHudPayload(
         int ores,
         int wood,
-        int guards,
         int food,
+        int guards,
+        int miners,
+        int farmers,
         int animals,
         int monsters,
         int level,
@@ -25,14 +27,15 @@ public record KingdomHudPayload(
     public static final StreamCodec<RegistryFriendlyByteBuf, KingdomHudPayload> STREAM_CODEC =
             CustomPacketPayload.codec(KingdomHudPayload::write, KingdomHudPayload::read);
 
-    // Estado mais recente recebido no cliente para renderizacao na tela
     public static volatile KingdomHudPayload clientState = null;
 
     private static void write(KingdomHudPayload payload, RegistryFriendlyByteBuf buf) {
         buf.writeInt(payload.ores);
         buf.writeInt(payload.wood);
-        buf.writeInt(payload.guards);
         buf.writeInt(payload.food);
+        buf.writeInt(payload.guards);
+        buf.writeInt(payload.miners);
+        buf.writeInt(payload.farmers);
         buf.writeInt(payload.animals);
         buf.writeInt(payload.monsters);
         buf.writeInt(payload.level);
@@ -41,6 +44,8 @@ public record KingdomHudPayload(
 
     private static KingdomHudPayload read(RegistryFriendlyByteBuf buf) {
         return new KingdomHudPayload(
+                buf.readInt(),
+                buf.readInt(),
                 buf.readInt(),
                 buf.readInt(),
                 buf.readInt(),

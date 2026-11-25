@@ -261,8 +261,10 @@ public class KingdomManager {
         KingdomHudPayload payload = new KingdomHudPayload(
                 ores,
                 wood,
-                kingdom.guardsCount,
                 food,
+                kingdom.guardsCount,
+                kingdom.minersCount,
+                kingdom.farmersCount,
                 animals,
                 monsters,
                 kingdom.level,
