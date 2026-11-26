@@ -1,6 +1,8 @@
 package grouponekingdown.onekingdown.kingdom;
 
 import grouponekingdown.onekingdown.Onekingdown;
+import grouponekingdown.onekingdown.network.HireUnitPayload;
+import grouponekingdown.onekingdown.network.OpenRecruiterPayload;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -65,5 +67,15 @@ public record KingdomHudPayload(
     public static void registerPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar("1");
         registrar.playToClient(TYPE, STREAM_CODEC, (payload, context) -> clientState = payload);
+        registrar.playToClient(
+                OpenRecruiterPayload.TYPE,
+                OpenRecruiterPayload.STREAM_CODEC,
+                OpenRecruiterPayload::handleOnClient
+        );
+        registrar.playToServer(
+                HireUnitPayload.TYPE,
+                HireUnitPayload.STREAM_CODEC,
+                HireUnitPayload::handleOnServer
+        );
     }
 }

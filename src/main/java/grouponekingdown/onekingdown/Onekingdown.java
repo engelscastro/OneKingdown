@@ -1,9 +1,11 @@
 package grouponekingdown.onekingdown;
 
 import com.mojang.logging.LogUtils;
+import grouponekingdown.onekingdown.client.renderer.KingdomGuardRenderer;
 import grouponekingdown.onekingdown.kingdom.KingdomEvents;
 import grouponekingdown.onekingdown.kingdom.KingdomHudOverlay;
 import grouponekingdown.onekingdown.kingdom.KingdomHudPayload;
+import grouponekingdown.onekingdown.npc.ModEntities;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -24,6 +26,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
@@ -57,10 +60,12 @@ public class Onekingdown {
     public Onekingdown(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(this::commonSetup);
         modEventBus.addListener(KingdomHudPayload::registerPayloads);
+        modEventBus.addListener(ModEntities::registerAttributes);
 
         BLOCKS.register(modEventBus);
         ITEMS.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
+        ModEntities.ENTITY_TYPES.register(modEventBus);
 
         NeoForge.EVENT_BUS.register(this);
 
@@ -101,6 +106,11 @@ public class Onekingdown {
         @SubscribeEvent
         public static void onRegisterKeys(RegisterKeyMappingsEvent event) {
             KingdomHudOverlay.onRegisterKeyMappings(event);
+        }
+
+        @SubscribeEvent
+        public static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
+            event.registerEntityRenderer(ModEntities.KINGDOM_GUARD.get(), KingdomGuardRenderer::new);
         }
 
         @SubscribeEvent

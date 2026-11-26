@@ -1,5 +1,7 @@
 package grouponekingdown.onekingdown.kingdom;
 
+import grouponekingdown.onekingdown.network.OpenRecruiterPayload;
+import grouponekingdown.onekingdown.npc.ModEntities;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
@@ -11,6 +13,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.Item;
@@ -18,6 +21,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +30,7 @@ public class KingdomNpcManager {
     public static final String TAG_ROLE = "onekingdown_role";
     public static final String TAG_OWNER = "onekingdown_owner";
     public static final String TAG_PROTECTED = "onekingdown_protected";
+    public static final String TAG_LEVEL = "onekingdown_level";
 
     public static final String ROLE_KING = "KING";
     public static final String ROLE_GUARD_LEADER = "GUARD_LEADER";
@@ -118,7 +123,7 @@ public class KingdomNpcManager {
                     p.getX() + 0.5, p.getY() + 1.0, p.getZ() + 2.0, true);
         }
 
-        // 5. Guardas ativos (Golems de Ferro patrulhando o castelo e atacando monstros)
+        // 5. Guardas ativos patrulhando o castelo e atacando monstros
         for (int i = currentGuards; i < kingdom.guardsCount; i++) {
             spawnGuardUnit(level, kingdom, i);
         }
@@ -153,7 +158,7 @@ public class KingdomNpcManager {
     }
 
     private static void spawnGuardUnit(ServerLevel level, KingdomData.Kingdom kingdom, int index) {
-        Mob guard = createMob(level, "iron_golem");
+        Mob guard = ModEntities.KINGDOM_GUARD.get().create(level, EntitySpawnReason.COMMAND);
         if (guard == null) return;
 
         double offsetX = ((index % 3) - 1) * 3.0;
@@ -161,6 +166,7 @@ public class KingdomNpcManager {
         guard.setCustomName(Component.literal("§9Guarda Real"));
         guard.setCustomNameVisible(true);
         guard.setPersistenceRequired();
+        equipUnitByLevel(guard, "WARRIOR", 1);
 
         CompoundTag tag = guard.getPersistentData();
         tag.putString(TAG_ROLE, ROLE_GUARD_UNIT);
@@ -222,44 +228,176 @@ public class KingdomNpcManager {
                     ));
                 }
             }
-            case ROLE_GUARD_LEADER -> {
-                if (held.is(Items.IRON_INGOT)) {
-                    hireUnit(overworld, player, kingdom, "guarda");
-                } else {
-                    player.sendSystemMessage(Component.literal(
-                            "§c[Líder da Guarda] §fTemos §e" + kingdom.guardsCount + "/" + kingdom.getMaxGuards()
-                                    + "§f guardas ativos protegendo o Rei.\n"
-                                    + "§7Custo por Guarda: §f5 Barras de Ferro + 3 Paes§7. "
-                                    + "Clique em mim segurando §fFerro§7 ou use §f/reino contratar guarda§7."
-                    ));
-                }
-            }
-            case ROLE_MINE_MASTER -> {
-                if (held.is(Items.BREAD)) {
-                    hireUnit(overworld, player, kingdom, "mineiro");
-                } else {
-                    player.sendSystemMessage(Component.literal(
-                            "§b[Mestre da Mina] §fTemos §e" + kingdom.minersCount + "/" + kingdom.getMaxMiners()
-                                    + "§f mineiros extraindo pedra, carvao, ferro e ouro para o bau da mina.\n"
-                                    + "§7Custo por Mineiro: §f3 Paes§7. "
-                                    + "Clique em mim segurando §fPao§7 ou use §f/reino contratar mineiro§7."
-                    ));
-                }
-            }
-            case ROLE_FARM_MASTER -> {
-                if (held.is(Items.IRON_INGOT)) {
-                    hireUnit(overworld, player, kingdom, "fazendeiro");
-                } else {
-                    player.sendSystemMessage(Component.literal(
-                            "§a[Mestre da Fazenda] §fTemos §e" + kingdom.farmersCount + "/" + kingdom.getMaxFarmers()
-                                    + "§f fazendeiros e cacadores produzindo trigo, pao, carne e madeira no bau da plantacao.\n"
-                                    + "§7Custo por Trabalhador: §f3 Barras de Ferro§7. "
-                                    + "Clique em mim segurando §fFerro§7 ou use §f/reino contratar fazendeiro§7."
-                    ));
-                }
-            }
+            case ROLE_GUARD_LEADER -> openRecruiterGui(player, "GUARD");
+            case ROLE_MINE_MASTER -> openRecruiterGui(player, "MINE");
+            case ROLE_FARM_MASTER -> openRecruiterGui(player, "FARM");
         }
         return true;
+    }
+
+    private static void openRecruiterGui(ServerPlayer player, String recruiterRole) {
+        int ores = countItem(player, Items.IRON_INGOT);
+        int wood = countItem(player, Items.OAK_LOG);
+        int food = countItem(player, Items.BREAD);
+        PacketDistributor.sendToPlayer(player, new OpenRecruiterPayload(recruiterRole, ores, wood, food));
+    }
+
+    public static void hireUnitWithLevel(ServerLevel overworld, ServerPlayer player, String unitType, int level) {
+        int clampedLevel = Math.max(1, Math.min(5, level));
+        KingdomManager manager = KingdomManager.get();
+        Optional<KingdomData.Kingdom> kingdomOpt = manager.getKingdomByPlayer(player.getUUID());
+        if (kingdomOpt.isEmpty()) return;
+        KingdomData.Kingdom kingdom = kingdomOpt.get();
+
+        int cost = clampedLevel * 15;
+
+        switch (unitType) {
+            case "WARRIOR", "ARCHER" -> {
+                if (kingdom.guardsCount >= kingdom.getMaxGuards()) {
+                    player.sendSystemMessage(Component.literal("§c[Quartel] Limite maximo de guardas atingido (" + kingdom.getMaxGuards() + ")."));
+                    return;
+                }
+                if (!player.isCreative()) {
+                    if (countItem(player, Items.IRON_INGOT) < cost) {
+                        player.sendSystemMessage(Component.literal("§c[Quartel] Voce precisa de §f" + cost + " Barras de Ferro§c no inventario!"));
+                        return;
+                    }
+                    consumeItem(player, Items.IRON_INGOT, cost);
+                }
+                kingdom.guardsCount++;
+                spawnLeveledGuard(overworld, kingdom, unitType, clampedLevel, kingdom.guardsCount);
+                manager.saveToDisk();
+                manager.sendHudSnapshot(overworld, player, kingdom);
+                String nome = "ARCHER".equals(unitType) ? "Arqueiro" : "Guerreiro";
+                player.sendSystemMessage(Component.literal("§9[Quartel] " + nome + " Nv." + clampedLevel + " contratado!"));
+            }
+            case "MINER" -> {
+                if (kingdom.minersCount >= kingdom.getMaxMiners()) {
+                    player.sendSystemMessage(Component.literal("§c[Mina] Limite maximo de mineiros atingido (" + kingdom.getMaxMiners() + ")."));
+                    return;
+                }
+                if (!player.isCreative()) {
+                    if (countItem(player, Items.OAK_LOG) < cost) {
+                        player.sendSystemMessage(Component.literal("§c[Mina] Voce precisa de §f" + cost + " Madeiras de Carvalho§c no inventario!"));
+                        return;
+                    }
+                    consumeItem(player, Items.OAK_LOG, cost);
+                }
+                kingdom.minersCount++;
+                spawnLeveledWorker(overworld, kingdom, "MINER", clampedLevel);
+                manager.saveToDisk();
+                manager.sendHudSnapshot(overworld, player, kingdom);
+                player.sendSystemMessage(Component.literal("§b[Mina] Mineiro Nv." + clampedLevel + " contratado!"));
+            }
+            case "FARMER" -> {
+                if (kingdom.farmersCount >= kingdom.getMaxFarmers()) {
+                    player.sendSystemMessage(Component.literal("§c[Plantacao] Limite maximo de fazendeiros atingido (" + kingdom.getMaxFarmers() + ")."));
+                    return;
+                }
+                if (!player.isCreative()) {
+                    if (countItem(player, Items.OAK_LOG) < cost) {
+                        player.sendSystemMessage(Component.literal("§c[Plantacao] Voce precisa de §f" + cost + " Madeiras de Carvalho§c no inventario!"));
+                        return;
+                    }
+                    consumeItem(player, Items.OAK_LOG, cost);
+                }
+                kingdom.farmersCount++;
+                spawnLeveledWorker(overworld, kingdom, "FARMER", clampedLevel);
+                manager.saveToDisk();
+                manager.sendHudSnapshot(overworld, player, kingdom);
+                player.sendSystemMessage(Component.literal("§a[Plantacao] Fazendeiro Nv." + clampedLevel + " contratado!"));
+            }
+        }
+    }
+
+    private static void spawnLeveledGuard(ServerLevel level, KingdomData.Kingdom kingdom, String unitType, int unitLevel, int index) {
+        Mob guard = ModEntities.KINGDOM_GUARD.get().create(level, EntitySpawnReason.COMMAND);
+        if (guard == null) return;
+
+        double offsetX = ((index % 3) - 1) * 3.0;
+        guard.setPos(kingdom.centerX + offsetX, kingdom.centerY + 1.0, kingdom.centerZ + 4.0);
+        String label = ("ARCHER".equals(unitType) ? "§9Arqueiro" : "§9Guerreiro") + " Nv." + unitLevel;
+        guard.setCustomName(Component.literal(label));
+        guard.setCustomNameVisible(true);
+        guard.setPersistenceRequired();
+
+        equipUnitByLevel(guard, unitType, unitLevel);
+
+        CompoundTag tag = guard.getPersistentData();
+        tag.putString(TAG_ROLE, ROLE_GUARD_UNIT);
+        tag.putString(TAG_OWNER, kingdom.ownerUuid);
+        tag.putInt(TAG_LEVEL, unitLevel);
+
+        level.addFreshEntity(guard);
+    }
+
+    private static void spawnLeveledWorker(ServerLevel level, KingdomData.Kingdom kingdom, String unitType, int unitLevel) {
+        Mob worker = createMob(level, "villager");
+        if (worker == null) return;
+
+        boolean isMiner = "MINER".equals(unitType);
+        BlockPos base = isMiner ? kingdom.getMinePos() : kingdom.getFarmPos();
+        worker.setPos(base.getX() + 1.5, base.getY() + 1.0, base.getZ() + 1.5);
+        String label = (isMiner ? "§7Mineiro" : "§2Fazendeiro") + " Nv." + unitLevel;
+        worker.setCustomName(Component.literal(label));
+        worker.setCustomNameVisible(true);
+        worker.setPersistenceRequired();
+
+        equipUnitByLevel(worker, unitType, unitLevel);
+
+        CompoundTag tag = worker.getPersistentData();
+        tag.putString(TAG_ROLE, ROLE_WORKER_UNIT);
+        tag.putString(TAG_OWNER, kingdom.ownerUuid);
+        tag.putBoolean(TAG_PROTECTED, true);
+        tag.putInt(TAG_LEVEL, unitLevel);
+
+        level.addFreshEntity(worker);
+    }
+
+    private static void equipUnitByLevel(Mob mob, String unitType, int level) {
+        Item mainHand = switch (unitType) {
+            case "WARRIOR" -> switch (level) {
+                case 1 -> Items.WOODEN_SWORD;
+                case 2 -> Items.STONE_SWORD;
+                case 3 -> Items.IRON_SWORD;
+                case 4 -> Items.DIAMOND_SWORD;
+                default -> Items.NETHERITE_SWORD;
+            };
+            case "ARCHER" -> Items.BOW;
+            case "MINER" -> switch (level) {
+                case 1 -> Items.WOODEN_PICKAXE;
+                case 2 -> Items.STONE_PICKAXE;
+                case 3 -> Items.IRON_PICKAXE;
+                case 4 -> Items.DIAMOND_PICKAXE;
+                default -> Items.NETHERITE_PICKAXE;
+            };
+            case "FARMER" -> switch (level) {
+                case 1 -> Items.WOODEN_HOE;
+                case 2 -> Items.STONE_HOE;
+                case 3 -> Items.IRON_HOE;
+                case 4 -> Items.DIAMOND_HOE;
+                default -> Items.NETHERITE_HOE;
+            };
+            default -> Items.WOODEN_SWORD;
+        };
+        mob.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(mainHand));
+
+        if ("WARRIOR".equals(unitType) || "ARCHER".equals(unitType)) {
+            switch (level) {
+                case 1 -> equipArmor(mob, Items.LEATHER_HELMET, Items.LEATHER_CHESTPLATE, Items.LEATHER_LEGGINGS, Items.LEATHER_BOOTS);
+                case 2 -> equipArmor(mob, Items.CHAINMAIL_HELMET, Items.CHAINMAIL_CHESTPLATE, Items.CHAINMAIL_LEGGINGS, Items.CHAINMAIL_BOOTS);
+                case 3 -> equipArmor(mob, Items.IRON_HELMET, Items.IRON_CHESTPLATE, Items.IRON_LEGGINGS, Items.IRON_BOOTS);
+                case 4 -> equipArmor(mob, Items.DIAMOND_HELMET, Items.DIAMOND_CHESTPLATE, Items.DIAMOND_LEGGINGS, Items.DIAMOND_BOOTS);
+                default -> equipArmor(mob, Items.NETHERITE_HELMET, Items.NETHERITE_CHESTPLATE, Items.NETHERITE_LEGGINGS, Items.NETHERITE_BOOTS);
+            }
+        }
+    }
+
+    private static void equipArmor(Mob mob, Item head, Item chest, Item legs, Item feet) {
+        mob.setItemSlot(EquipmentSlot.HEAD, new ItemStack(head));
+        mob.setItemSlot(EquipmentSlot.CHEST, new ItemStack(chest));
+        mob.setItemSlot(EquipmentSlot.LEGS, new ItemStack(legs));
+        mob.setItemSlot(EquipmentSlot.FEET, new ItemStack(feet));
     }
 
     public static void hireUnit(ServerLevel overworld, ServerPlayer player, KingdomData.Kingdom kingdom, String tipo) {
@@ -328,7 +466,6 @@ public class KingdomNpcManager {
      * Executado periodicamente: deposita os recursos minerados, colhidos e madeira nos baus de cada construcao.
      */
     public static void produceKingdomResources(ServerLevel overworld, KingdomData.Kingdom kingdom) {
-        // Producao da Mina -> bau da Mina
         if (kingdom.minersCount > 0) {
             depositNear(overworld, kingdom.getMinePos(), new ItemStack(Items.COBBLESTONE, kingdom.minersCount * 2));
             depositNear(overworld, kingdom.getMinePos(), new ItemStack(Items.COAL, kingdom.minersCount));
@@ -340,7 +477,6 @@ public class KingdomNpcManager {
             }
         }
 
-        // Producao da Plantacao, Caca e Madeira -> bau da Plantacao
         if (kingdom.farmersCount > 0) {
             depositNear(overworld, kingdom.getFarmPos(), new ItemStack(Items.WHEAT, kingdom.farmersCount * 2));
             depositNear(overworld, kingdom.getFarmPos(), new ItemStack(Items.BREAD, kingdom.farmersCount));
@@ -396,5 +532,7 @@ public class KingdomNpcManager {
                 remaining -= take;
             }
         }
+        player.getInventory().setChanged();
+        player.inventoryMenu.broadcastChanges();
     }
 }
