@@ -90,15 +90,18 @@ public class KingdomData {
 
         // Posicoes das construcoes secundarias dentro do territorio do reino
         public BlockPos getBarracksPos() {
-            return new BlockPos(centerX + 20, centerY, centerZ);
+            int offset = Math.max(22, (sideSize / 2) - 22);
+            return new BlockPos(centerX + offset, centerY, centerZ);
         }
 
         public BlockPos getMinePos() {
-            return new BlockPos(centerX - 20, centerY, centerZ);
+            int offset = Math.max(22, (sideSize / 2) - 22);
+            return new BlockPos(centerX - offset, centerY, centerZ);
         }
 
         public BlockPos getFarmPos() {
-            return new BlockPos(centerX, centerY, centerZ - 20);
+            int offset = Math.max(22, (sideSize / 2) - 22);
+            return new BlockPos(centerX, centerY, centerZ - offset);
         }
 
         public int getMaxGuards() {

@@ -10,7 +10,9 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
@@ -26,8 +28,11 @@ public class CastleStructureBuilder {
     public static void buildOrUpgradeCastle(ServerLevel level, KingdomData.Kingdom kingdom) {
         int tier = kingdom.currentTier;
 
-        // 1. Preservar todos os itens de baus existentes no reino antes da atualizacao
-        List<ItemStack> savedItems = collectAndClearContainers(level, kingdom);
+        // 1. Preservar itens separados por setor antes da reconstrucao
+        List<ItemStack> savedFarmItems = collectAndClearArea(level, kingdom.getFarmPos(), 18);
+        List<ItemStack> savedMineItems = collectAndClearArea(level, kingdom.getMinePos(), 18);
+        List<ItemStack> savedBarracksItems = collectAndClearArea(level, kingdom.getBarracksPos(), 18);
+        List<ItemStack> savedCastleItems = collectAndClearContainers(level, kingdom);
 
         // 2. Nivelar e limpar a plataforma completa do reino
         prepareTerritoryPlatform(level, kingdom);
@@ -45,18 +50,63 @@ public class CastleStructureBuilder {
             buildProceduralMine(level, kingdom.getMinePos(), tier);
         }
 
-        if (!tryPlaceNbt(level, "farm_tier_" + tier, kingdom.getFarmPos())) {
+        BlockPos farmChestPos = null;
+        String farmNbt = getFarmNbtForTier(tier);
+        Rotation farmRotation = (tier >= 4) ? Rotation.CLOCKWISE_180 : Rotation.NONE;
+        Vec3i farmSize = (farmNbt != null) ? tryPlaceNbtWithSize(level, farmNbt, kingdom.getFarmPos(), farmRotation) : null;
+        if (farmSize == null) {
+            farmSize = tryPlaceNbtWithSize(level, "farm_tier_" + tier, kingdom.getFarmPos(), Rotation.NONE);
+        }
+        if (farmSize == null) {
             buildProceduralFarm(level, kingdom.getFarmPos(), tier);
+        } else {
+            // Limpa itens nativos que venham dentro do proprio NBT para nao duplicar com os salvos
+            clearContainersInArea(level, kingdom.getFarmPos(), 18);
+            farmChestPos = placeChestNextToNbt(level, kingdom.getFarmPos(), farmSize);
         }
 
         // 4. Caminhos de pedra ligando o Castelo as construcoes
         buildConnectingPaths(level, kingdom);
 
-        // 5. Restaurar itens salvos nos baus
-        restoreItemsToCastle(level, kingdom, savedItems);
+        // 5. Restaurar cada setor apenas nos seus proprios baus
+        if (farmChestPos != null && !savedFarmItems.isEmpty()) {
+            BlockEntity be = level.getBlockEntity(farmChestPos);
+            if (be instanceof Container container) {
+                container.clearContent();
+                insertIntoContainer(container, savedFarmItems);
+                be.setChanged();
+            }
+        } else {
+            restoreItemsToArea(level, kingdom.getFarmPos(), 18, savedFarmItems);
+        }
+
+        restoreItemsToArea(level, kingdom.getMinePos(), 18, savedMineItems);
+        restoreItemsToArea(level, kingdom.getBarracksPos(), 18, savedBarracksItems);
+
+        // Apenas itens que nao couberam na fazenda vao para o castelo (sem duplicar)
+        savedCastleItems.addAll(savedFarmItems);
+        savedCastleItems.addAll(savedMineItems);
+        savedCastleItems.addAll(savedBarracksItems);
+        restoreItemsToArea(level, kingdom.getCenterPos(), 20, savedCastleItems);
+
+        // Fallback caso os baus do castelo tenham enchido
+        restoreFallbackChests(level, kingdom, savedCastleItems);
+    }
+
+    private static String getFarmNbtForTier(int tier) {
+        if (tier >= 4) {
+            return "farm_house_nv4_by_norcik1";
+        } else if (tier >= 2) {
+            return "farm_house_nv2_by_potatoplaysgames";
+        }
+        return null; // Tier 1 usa a plantacao basica procedural
     }
 
     private static boolean tryPlaceNbt(ServerLevel level, String name, BlockPos center) {
+        return tryPlaceNbtWithSize(level, name, center, Rotation.NONE) != null;
+    }
+
+    private static Vec3i tryPlaceNbtWithSize(ServerLevel level, String name, BlockPos center, Rotation rotation) {
         Identifier structureId = Identifier.fromNamespaceAndPath(Onekingdown.MODID, name);
         Optional<StructureTemplate> templateOpt = level.getStructureTemplateManager().get(structureId);
         if (templateOpt.isPresent()) {
@@ -67,11 +117,59 @@ public class CastleStructureBuilder {
                     center.getY(),
                     center.getZ() - (size.getZ() / 2)
             );
-            template.placeInWorld(level, placeOrigin, placeOrigin, new StructurePlaceSettings(), level.getRandom(), Block.UPDATE_ALL);
-            LOGGER.info("Schematic NBT {} colocado em {}", structureId, center);
-            return true;
+            StructurePlaceSettings settings = new StructurePlaceSettings()
+                    .setRotation(rotation)
+                    .setRotationPivot(new BlockPos(size.getX() / 2, 0, size.getZ() / 2));
+
+            template.placeInWorld(level, placeOrigin, placeOrigin, settings, level.getRandom(), Block.UPDATE_ALL);
+            LOGGER.info("Schematic NBT {} colocado em {} (rotacao {})", structureId, center, rotation);
+            return size;
         }
-        return false;
+        return null;
+    }
+
+    private static BlockPos placeChestNextToNbt(ServerLevel level, BlockPos center, Vec3i size) {
+        int southEdgeZ = center.getZ() - (size.getZ() / 2) + size.getZ();
+        BlockPos chestPos = new BlockPos(center.getX() + 2, center.getY() + 1, southEdgeZ);
+
+        level.setBlock(chestPos.below(), Blocks.GRASS_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(chestPos.above(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(chestPos, Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
+        return chestPos;
+    }
+
+    private static void clearContainersInArea(ServerLevel level, BlockPos center, int radius) {
+        BlockPos min = center.offset(-radius, -2, -radius);
+        BlockPos max = center.offset(radius, 25, radius);
+
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof Container container) {
+                container.clearContent();
+                be.setChanged();
+            }
+        }
+    }
+
+    private static List<ItemStack> collectAndClearArea(ServerLevel level, BlockPos center, int radius) {
+        List<ItemStack> items = new ArrayList<>();
+        BlockPos min = center.offset(-radius, -2, -radius);
+        BlockPos max = center.offset(radius, 25, radius);
+
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof Container container) {
+                for (int i = 0; i < container.getContainerSize(); i++) {
+                    ItemStack stack = container.getItem(i);
+                    if (!stack.isEmpty()) {
+                        items.add(stack.copy());
+                    }
+                }
+                container.clearContent();
+                be.setChanged();
+            }
+        }
+        return items;
     }
 
     private static List<ItemStack> collectAndClearContainers(ServerLevel level, KingdomData.Kingdom kingdom) {
@@ -93,6 +191,35 @@ public class CastleStructureBuilder {
             }
         }
         return items;
+    }
+
+    private static void restoreItemsToArea(ServerLevel level, BlockPos center, int radius, List<ItemStack> remaining) {
+        if (remaining.isEmpty()) return;
+        BlockPos min = center.offset(-radius, -1, -radius);
+        BlockPos max = center.offset(radius, 25, radius);
+
+        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
+            if (remaining.isEmpty()) break;
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof ChestBlockEntity container) {
+                insertIntoContainer(container, remaining);
+                be.setChanged();
+            }
+        }
+    }
+
+    private static void restoreFallbackChests(ServerLevel level, KingdomData.Kingdom kingdom, List<ItemStack> remaining) {
+        int offset = 0;
+        while (!remaining.isEmpty() && offset < 10) {
+            BlockPos fallbackPos = new BlockPos(kingdom.centerX + 2 + offset, kingdom.centerY + 1, kingdom.centerZ);
+            level.setBlock(fallbackPos, Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
+            BlockEntity be = level.getBlockEntity(fallbackPos);
+            if (be instanceof Container container) {
+                insertIntoContainer(container, remaining);
+                be.setChanged();
+            }
+            offset++;
+        }
     }
 
     private static void prepareTerritoryPlatform(ServerLevel level, KingdomData.Kingdom kingdom) {
@@ -129,8 +256,12 @@ public class CastleStructureBuilder {
         int cy = kingdom.centerY;
         int cz = kingdom.centerZ;
 
+        int minPathX = Math.min(kingdom.getMinePos().getX(), cx);
+        int maxPathX = Math.max(kingdom.getBarracksPos().getX(), cx);
+        int minPathZ = Math.min(kingdom.getFarmPos().getZ(), cz);
+
         // Caminho Leste-Oeste (Mina <-> Castelo <-> Quartel)
-        for (int x = cx - 16; x <= cx + 16; x++) {
+        for (int x = minPathX; x <= maxPathX; x++) {
             for (int dz = -1; dz <= 1; dz++) {
                 BlockPos pos = new BlockPos(x, cy, cz + dz);
                 if (level.getBlockState(pos).is(Blocks.GRASS_BLOCK)) {
@@ -139,7 +270,7 @@ public class CastleStructureBuilder {
             }
         }
         // Caminho Norte (Castelo <-> Plantacao)
-        for (int z = cz - 16; z <= cz; z++) {
+        for (int z = minPathZ; z <= cz; z++) {
             for (int dx = -1; dx <= 1; dx++) {
                 BlockPos pos = new BlockPos(cx + dx, cy, z);
                 if (level.getBlockState(pos).is(Blocks.GRASS_BLOCK)) {
@@ -308,35 +439,6 @@ public class CastleStructureBuilder {
         level.setBlock(new BlockPos(cx - 2, cy + 1, cz + 3), Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx + 2, cy + 1, cz + 3), Blocks.SMOKER.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx + 3, cy + 1, cz + 3), Blocks.HAY_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
-    }
-
-    private static void restoreItemsToCastle(ServerLevel level, KingdomData.Kingdom kingdom, List<ItemStack> savedItems) {
-        if (savedItems.isEmpty()) return;
-
-        List<ItemStack> remaining = new ArrayList<>(savedItems);
-        BlockPos min = new BlockPos(kingdom.getMinX(), kingdom.centerY - 1, kingdom.getMinZ());
-        BlockPos max = new BlockPos(kingdom.getMaxX(), kingdom.centerY + 30, kingdom.getMaxZ());
-
-        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
-            if (remaining.isEmpty()) break;
-            BlockEntity be = level.getBlockEntity(pos);
-            if (be instanceof Container container) {
-                insertIntoContainer(container, remaining);
-                be.setChanged();
-            }
-        }
-
-        int offset = 0;
-        while (!remaining.isEmpty() && offset < 10) {
-            BlockPos fallbackPos = new BlockPos(kingdom.centerX + 2 + offset, kingdom.centerY + 1, kingdom.centerZ);
-            level.setBlock(fallbackPos, Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
-            BlockEntity be = level.getBlockEntity(fallbackPos);
-            if (be instanceof Container container) {
-                insertIntoContainer(container, remaining);
-                be.setChanged();
-            }
-            offset++;
-        }
     }
 
     private static void insertIntoContainer(Container container, List<ItemStack> remaining) {

@@ -8,17 +8,17 @@ O **OneKingdown** é um mod de gerenciamento procedural de reinos para **Minecra
 
 ### Funcionalidades Já Implementadas
 
-* **Sistema de Reinos e Salas:** Criação de reinos individuais (território de 1.000 blocos quadrados) com suporte planejado para até 5 jogadores simultâneos por sala dinâmica.
-* **Progressão em Tiers (Tier 1 a Tier 5+):** Evolução de nível do reino e melhoria das estruturas.
-* **Estruturas Principais e Líderes NPC:**
+* **Sistema de Reinos e Salas:** Criação de reinos individuais em território expandido (**120×120** blocos por reino e espaçamento de **260** blocos entre reinos) com suporte planejado para até 5 jogadores simultâneos por sala dinâmica.
+* **Progressão em Tiers (Tier 1 a Tier 5+):** Evolução de nível do reino e melhoria das estruturas sem teletransportar o jogador ao subir de tier (`KingdomManager.addXpAndCheckUpgrade`).
+* **Estruturas Principais e Líderes NPC:** Posicionadas proporcionalmente ao tamanho do reino (`KingdomData.getBarracksPos()`, `getMinePos()` e `getFarmPos()`, ficando a $\approx 38$ blocos do centro em reinos 120×120 para afastar construções e NPCs da muralha do castelo):
   * **Castelo:** Abriga o **Rei** (núcleo do reino e ponto de respawn).
   * **Quartel (Barracks):** Abriga o **Líder da Guarda** (recrutamento de Guerreiros e Arqueiros).
   * **Mina (Mine):** Abriga o **Mestre da Mina** (recrutamento de Mineiros e produção de minérios).
-  * **Fazenda (Farm):** Abriga o **Mestre da Fazenda** (recrutamento de Fazendeiros e produção de alimentos).
+  * **Fazenda (Farm):** Abriga o **Mestre da Fazenda** (recrutamento de Fazendeiros e produção de alimentos), evoluindo com estruturas `.nbt` específicas (`farm_house_nv2_by_potatoplaysgames` no Tier 2+ e `farm_house_nv4_by_norcik1` com rotação `Rotation.CLOCKWISE_180` no Tier 4+), além de posicionar automaticamente um baú de coleta colado na borda Sul da estrutura `.nbt`.
 * **GUI de Contratação com Níveis (1 a 5):** Tela reutilizável (`RecruiterScreen`) com textura própria de pergaminho e espadas (`recruiter_gui.png`, 220×220). Permite escolher o tipo de unidade (incluindo abas de Guerreiro/Arqueiro no Quartel), exibe o saldo real do inventário (`Ferro`, `Mad`, `Pao`) e mostra os preços de cada nível (Nv. 1 ao 5) com feedback dinâmico de cor (**verde** quando disponível ou em Criativo; **vermelho** quando faltam recursos).
 * **Entidade Customizada de Guarda (`KingdomGuardEntity`):** Entidade humanoide própria (`onekingdown:kingdom_guard`) que substituiu os Golems de Ferro. Suporta combate corpo a corpo (Guerreiro) e à distância com arco (Arqueiro), ataca apenas monstros (`Monster`) e renderiza armaduras e armas equipadas nativamente.
 * **Sistema de Invasões PvE (`invasion/`):** Sistema modular de invasões por ondas com estrutura `.nbt` gerada e validada dinamicamente (`data/onekingdown/structure/infernal_blackstone_citadel.nbt`), barra de chefe (`ServerBossEvent`), disparo automático conectado ao `KingdomManager` ao atingir o Tier 5 do castelo, carregamento garantido de chunks e comandos administrativos (`/invasao start|stop|status`).
-* **Economia e Ciclos de Produção:** Produção periódica de recursos nos baús/containers do território e contagem em tempo real de minérios, madeiras, comida, animais e monstros.
+* **Economia, Ciclos de Produção e Isolamento de Inventário:** Produção periódica de recursos nos baús/containers do território, contagem em tempo real de minérios, madeiras, comida, animais e monstros, e preservação de itens separada por setor (`Fazenda`, `Mina`, `Quartel` e `Castelo`) durante upgrades no `CastleStructureBuilder`, limpando containers nativos dos `.nbt` recém-posicionados antes de restaurar os itens salvos para evitar duplicação.
 * **Sistema de NPCs:** Recrutamento, interação, sincronização de inventário no consumo de itens e proteção gerenciados via tags persistentes (`TAG_ROLE`, `TAG_OWNER`, `TAG_PROTECTED`, `TAG_LEVEL`), com separação independente de `ROLE_MINER_UNIT` e `ROLE_FARMER_UNIT` (incluindo migração automática do legado `ROLE_WORKER_UNIT`).
 * **Respawn Customizado:** Ao morrer, o jogador é teleportado diretamente para o trono do seu Castelo.
 * **HUD Reativa e Recolhível:** Painel discreto no canto superior direito sincronizado via rede (`CustomPacketPayload`), exibindo nível, tier, recursos, trabalhadores, tropas e ameaças. Recolhe e expande a qualquer momento com a tecla **`H`** (configurável nos controles do jogo).
@@ -60,7 +60,7 @@ O **OneKingdown** é um mod de gerenciamento procedural de reinos para **Minecra
 5. **Invasões, Comandos e Estruturas:**
    * Permissões de comando usam `Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)`.
    * `ServerBossEvent` exige `UUID` no construtor: `new ServerBossEvent(UUID.randomUUID(), Component, BossBarColor, BossBarOverlay)`.
-   * Carregamento de templates `.nbt` usa `level.getStructureTemplateManager().get(Identifier)` e **exige** que o arquivo esteja em `src/main/resources/data/<modid>/structure/<nome>.nbt` (pasta `structure` no singular).
+   * Carregamento de templates `.nbt` usa `level.getStructureTemplateManager().get(Identifier)` e **exige** que o arquivo esteja em `src/main/resources/data/<modid>/structure/<nome>.nbt` (pasta `structure` no singular). `StructurePlaceSettings` suporta `.setRotation(...)` e `.setRotationPivot(...)`.
 6. **Teclas de Atalho (`KeyMapping`):**
    * Construtor validado: `new KeyMapping(String name, int keyCode, KeyMapping.Category category)`.
    * Códigos de tecla devem vir de `com.mojang.blaze3d.platform.InputConstants` (ex.: `InputConstants.KEY_H`, `InputConstants.KEY_M`). **Não importe `org.lwjgl.glfw.GLFW`**.
@@ -110,25 +110,26 @@ OneKingdown/
         │   ├── kingdom/
         │   │   ├── KingdomHudOverlay.java            # HUD recolhível e KeyMapping [H]
         │   │   ├── KingdomHudPayload.java            # Pacote Server -> Client (HUD) + registro de payloads
-        │   │   ├── KingdomData.java                  # Modelo de dados e persistência dos reinos
+        │   │   ├── KingdomData.java                  # Modelo de dados, dimensões (120x120) e posições proporcionais
         │   │   ├── KingdomManager.java               # Regras de negócio, geração, upgrades, produção, HUD e gatilho de invasão
         │   │   ├── KingdomEvents.java                # Listeners de eventos de servidor, comandos e proteção
-        │   │   └── KingdomNpcManager.java            # Spawn, tags (MINER_UNIT/FARMER_UNIT), contratação com níveis e equipamentos
+        │   │   ├── KingdomNpcManager.java            # Spawn, tags (MINER_UNIT/FARMER_UNIT), contratação com níveis e equipamentos
+        │   │   └── CastleStructureBuilder.java       # Construção procedural, .nbt (fazendas nv2/nv4, rotação), baú da fazenda e preservação por setor
         │   ├── npc/
         │   │   ├── KingdomGuardEntity.java           # Entidade humanoide de guarda (Guerreiro/Arqueiro)
         │   │   └── ModEntities.java                  # DeferredRegister e atributos das entidades do mod
-        │   ├── invasion/
-        │   │   ├── InvasionDefinition.java           # Record com definição de cada tipo de invasão
-        │   │   ├── InvasionRegistry.java             # Registro de invasões (ex.: INFERNAL_CITADEL)
-        │   │   ├── InvasionManager.java              # Controle de ondas, estrutura .nbt, BossBar e getters de mapa
-        │   │   └── InvasionCommand.java              # Comando /invasao <start|stop|status>
-        │   └── structure/
-        │       └── CastleStructureBuilder.java       # Construção procedural do castelo e prédios
+        │   └── invasion/
+        │       ├── InvasionDefinition.java           # Record com definição de cada tipo de invasão
+        │       ├── InvasionRegistry.java             # Registro de invasões (ex.: INFERNAL_CITADEL)
+        │       ├── InvasionManager.java              # Controle de ondas, estrutura .nbt, BossBar e getters de mapa
+        │       └── InvasionCommand.java              # Comando /invasao <start|stop|status>
         └── resources/
             ├── META-INF/
             │   └── neoforge.mods.toml
             ├── data/onekingdown/structure/
-            │   └── infernal_blackstone_citadel.nbt   # Estrutura da Cidadela Infernal (validada)
+            │   ├── infernal_blackstone_citadel.nbt   # Estrutura da Cidadela Infernal (validada)
+            │   ├── farm_house_nv2_by_potatoplaysgames.nbt
+            │   └── farm_house_nv4_by_norcik1.nbt
             └── assets/onekingdown/textures/gui/
                 └── recruiter_gui.png                 # Textura de fundo da GUI (pergaminho com espadas)
 ```
@@ -164,7 +165,14 @@ OneKingdown/
 | **Nv. 4** | Espada de Diamante + Diamante | Arco + Diamante | Picareta de Diamante | Enxada de Diamante | 60 |
 | **Nv. 5** | Espada de Netherita + Netherita | Arco + Netherita | Picareta de Netherita | Enxada de Netherita | 75 |
 
-### 5.4. Sistema de Invasões PvE (`invasion/`)
+### 5.4. Estruturas, Escala do Reino e Preservação de Itens (`CastleStructureBuilder` & `KingdomData`)
+
+* **Escala e Posições Proporcionais:** Reinos possuem `sideSize = 120` e espaçamento `260`. Os métodos `getBarracksPos()`, `getMinePos()` e `getFarmPos()` em `KingdomData` calculam o deslocamento proporcional ($\max(22, (\text{sideSize} / 2) - 22)$), afastando prédios e NPCs do castelo sem encostar na borda do reino.
+* **Upgrade Sem Teleporte:** Em `KingdomManager.addXpAndCheckUpgrade`, o upgrade reconstrói as estruturas e sincroniza os NPCs mantendo o jogador na posição atual.
+* **Fazendas `.nbt`, Rotação e Baú:** O Tier 2+ utiliza `farm_house_nv2_by_potatoplaysgames` e o Tier 4+ utiliza `farm_house_nv4_by_norcik1` com `Rotation.CLOCKWISE_180` (pivô no centro do template). Ao posicionar um `.nbt` de fazenda, containers nativos da estrutura são limpos para evitar duplicação e um baú de coleta é criado na borda Sul (`southEdgeZ`), voltado para o castelo.
+* **Isolamento por Setor:** Itens são coletados separadamente para Fazenda, Mina, Quartel e Castelo antes de nivelar a plataforma e restaurados nos respectivos setores (`ChestBlockEntity`), evitando que itens de um setor contaminem ou dupliquem em outro.
+
+### 5.5. Sistema de Invasões PvE (`invasion/`)
 
 * **`InvasionDefinition` & `InvasionRegistry`:** Define cada invasão com ID, nome, estrutura `.nbt`, tier de gatilho, número de ondas, inimigos base por onda, cor da `BossBar` e lista de mobs (`enemyPool`). A primeira invasão registrada é `INFERNAL_CITADEL` (`onekingdown:infernal_blackstone_citadel`, Tier 5, 3 ondas, atualmente usando `skeleton` e `blaze` como placeholders até a criação dos demônios customizados).
 * **`InvasionManager`:**
@@ -174,7 +182,7 @@ OneKingdown/
   * `getCitadelPos()` / `getActiveInvasionName()`: Expõem a localização e o nome da invasão ativa para o minimapa.
 * **`InvasionCommand`:** Comandos `/invasao start <id>`, `/invasao stop` e `/invasao status`.
 
-### 5.5. Minimapa em Tempo Real (`KingdomMinimapOverlay` & `WorldMapCache`)
+### 5.6. Minimapa em Tempo Real (`KingdomMinimapOverlay` & `WorldMapCache`)
 
 1. **Cache de Terreno (`WorldMapCache`):** Escaneia gradualmente até 4 chunks por ciclo (a cada 20 ticks, raio de 3 chunks ao redor do jogador) armazenando cores de mapa com sombreamento de relevo em um `ConcurrentHashMap<Long, int[]>`. Limpa automaticamente ao trocar de dimensão.
 2. **Sincronização de Marcadores (`RequestMapPayload` → `OpenMapPayload`):** A cada 5 segundos (ou ao reexibir o mapa com `M`), o cliente solicita os marcadores ao servidor, que retorna coordenadas do Castelo, Quartel, Mina, Fazenda e da Cidadela de Invasão (se ativa).
@@ -218,7 +226,7 @@ git push origin main
    * Reforçar proteção/imunidade dos trabalhadores (`TAG_PROTECTED`) contra dano letal de monstros noturnos e sincronizar a contagem de guardas caso algum morra em combate.
    * Adicionar skin customizada em `assets/onekingdown/textures/entity/kingdom_guard.png` para o `KingdomGuardRenderer`.
 3. **Evolução Visual de Estruturas (Schematics NBT):**
-   * Carregamento de arquivos `.nbt` de castelos que evoluem automaticamente a cada 10 níveis.
+   * Carregamento de arquivos `.nbt` de castelos e demais prédios que evoluem automaticamente conforme o tier/nível.
 4. **Invasões PvP e Salas Dinâmicas (até 5 jogadores):**
    * Mecânica de ataque entre reinos vizinhos na mesma sala.
 5. **Polimento e Localização:**

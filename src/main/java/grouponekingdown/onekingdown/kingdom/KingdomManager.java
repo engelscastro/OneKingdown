@@ -181,7 +181,6 @@ public class KingdomManager {
         if (upgraded) {
             CastleStructureBuilder.buildOrUpgradeCastle(overworld, kingdom);
             KingdomNpcManager.syncKingdomNpcs(overworld, kingdom);
-            teleportToKingdom(overworld, player, kingdom);
             player.sendSystemMessage(Component.literal(
                     "§6§l[OneKingdown] EVOLUCAO! Castelo e construcoes atualizados para o Tier " + kingdom.currentTier + "!"
             ));

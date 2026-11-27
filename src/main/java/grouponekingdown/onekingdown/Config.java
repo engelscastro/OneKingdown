@@ -21,8 +21,8 @@ public class Config {
             .defineInRange("maxPlayersPerRoom", 5, 1, 50);
 
     private static final ModConfigSpec.IntValue KINGDOM_SIDE_SIZE = BUILDER
-            .comment("Lado do terreno quadrado de cada reino em blocos (64x64 comporta castelo + quartel + mina + plantacao)")
-            .defineInRange("kingdomSideSize", 64, 48, 160);
+            .comment("Lado do terreno quadrado de cada reino em blocos (120x120 comporta castelo + construcoes NBT maiores)")
+            .defineInRange("kingdomSideSize", 120, 48, 256);
 
     private static final ModConfigSpec.IntValue ROOM_SPACING = BUILDER
             .comment("Distancia em blocos entre salas diferentes para manter isolamento")
@@ -30,7 +30,7 @@ public class Config {
 
     private static final ModConfigSpec.IntValue KINGDOM_SPACING = BUILDER
             .comment("Raio de distribuicao dos reinos dentro da mesma sala")
-            .defineInRange("kingdomSpacing", 160, 80, 1000);
+            .defineInRange("kingdomSpacing", 260, 120, 1000);
 
     private static final ModConfigSpec.IntValue XP_PER_LEVEL = BUILDER
             .comment("XP necessario para subir cada nivel do reino")
@@ -59,9 +59,9 @@ public class Config {
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static int maxPlayersPerRoom = 5;
-    public static int kingdomSideSize = 64;
+    public static int kingdomSideSize = 120;
     public static int roomSpacing = 10000;
-    public static int kingdomSpacing = 160;
+    public static int kingdomSpacing = 260;
     public static int xpPerLevel = 100;
     public static int productionIntervalSeconds = 30;
 
