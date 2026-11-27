@@ -8,13 +8,18 @@ O **OneKingdown** é um mod de gerenciamento procedural de reinos para **Minecra
 
 ### Funcionalidades Já Implementadas
 
-* **Sistema de Reinos e Salas:** Criação de reinos individuais em território expandido (**120×120** blocos por reino e espaçamento de **260** blocos entre reinos) com suporte planejado para até 5 jogadores simultâneos por sala dinâmica.
+* **Lobby Responsivo e Configuração de Sala (`RoomSetupScreen`):** Ao entrar em um mundo sem reino, o jogador é direcionado para uma tela responsiva (adaptável a qualquer resolução/GUI Scale com modo compacto automático) antes do início da partida:
+  * **Modo Host (dono da sala):** Gera e exibe um **Código da Sala** (`OKD-XXXX`) com botão para copiar, permite escolher de **1 a 5 jogadores** e configurar individualmente o **Terreno** e a **Cor da Bandeira** de cada reino.
+  * **Modo Convidado:** Exibe o campo para digitar o código da sala e entrar automaticamente no próximo slot disponível.
+* **Terrenos Temáticos e Estandartes (`KingdomTheme`):** Suporte a 5 temas de território (`Planície`, `Deserto (Areia)`, `Cidade do Gelo`, `Floresta Taiga` e `Terras Vulcânicas`) que personalizam superfície, subsolo, borda e caminhos, além de 8 cores de estandartes (`BannerColor`) posicionados ao lado do trono e nos portões do castelo.
+* **Sistema de Reinos e Posicionamento Compacto:** Território expandido de **120×120** blocos por reino com espaçamento compacto de **150** blocos entre centros na mesma sala (`COMPACT_KINGDOM_STEP = 150`), mantendo 30 blocos livres entre muralhas vizinhas para facilitar interação e disputas sem sobreposição.
 * **Progressão em Tiers (Tier 1 a Tier 5+):** Evolução de nível do reino e melhoria das estruturas sem teletransportar o jogador ao subir de tier (`KingdomManager.addXpAndCheckUpgrade`).
-* **Estruturas Principais e Líderes NPC:** Posicionadas proporcionalmente ao tamanho do reino (`KingdomData.getBarracksPos()`, `getMinePos()` e `getFarmPos()`, ficando a $\approx 38$ blocos do centro em reinos 120×120 para afastar construções e NPCs da muralha do castelo):
+* **Estruturas Principais e Líderes NPC:** Posicionadas proporcionalmente ao tamanho do reino (`KingdomData.getBarracksPos()`, `getMinePos()` e `getFarmPos()`, ficando a $\approx 38$ blocos do centro em reinos $120 \times 120$ para afastar construções e NPCs da muralha do castelo):
   * **Castelo:** Abriga o **Rei** (núcleo do reino e ponto de respawn).
   * **Quartel (Barracks):** Abriga o **Líder da Guarda** (recrutamento de Guerreiros e Arqueiros).
   * **Mina (Mine):** Abriga o **Mestre da Mina** (recrutamento de Mineiros e produção de minérios).
   * **Fazenda (Farm):** Abriga o **Mestre da Fazenda** (recrutamento de Fazendeiros e produção de alimentos), evoluindo com estruturas `.nbt` específicas (`farm_house_nv2_by_potatoplaysgames` no Tier 2+ e `farm_house_nv4_by_norcik1` com rotação `Rotation.CLOCKWISE_180` no Tier 4+), além de posicionar automaticamente um baú de coleta colado na borda Sul da estrutura `.nbt`.
+* **Limpeza Segura de Terreno:** A preparação da plataforma limpa de cima para baixo a partir do topo real do mundo (`Heightmap.Types.WORLD_SURFACE`) usando `Block.UPDATE_CLIENTS`, eliminando montanhas flutuantes e evitando drops de sementes/mudas, seguida de varredura de `ItemEntity` no território.
 * **GUI de Contratação com Níveis (1 a 5):** Tela reutilizável (`RecruiterScreen`) com textura própria de pergaminho e espadas (`recruiter_gui.png`, 220×220). Permite escolher o tipo de unidade (incluindo abas de Guerreiro/Arqueiro no Quartel), exibe o saldo real do inventário (`Ferro`, `Mad`, `Pao`) e mostra os preços de cada nível (Nv. 1 ao 5) com feedback dinâmico de cor (**verde** quando disponível ou em Criativo; **vermelho** quando faltam recursos).
 * **Entidade Customizada de Guarda (`KingdomGuardEntity`):** Entidade humanoide própria (`onekingdown:kingdom_guard`) que substituiu os Golems de Ferro. Suporta combate corpo a corpo (Guerreiro) e à distância com arco (Arqueiro), ataca apenas monstros (`Monster`) e renderiza armaduras e armas equipadas nativamente.
 * **Sistema de Invasões PvE (`invasion/`):** Sistema modular de invasões por ondas com estrutura `.nbt` gerada e validada dinamicamente (`data/onekingdown/structure/infernal_blackstone_citadel.nbt`), barra de chefe (`ServerBossEvent`), disparo automático conectado ao `KingdomManager` ao atingir o Tier 5 do castelo, carregamento garantido de chunks e comandos administrativos (`/invasao start|stop|status`).
@@ -51,12 +56,12 @@ O **OneKingdown** é um mod de gerenciamento procedural de reinos para **Minecra
      * `gui.fill(x1, y1, x2, y2, color)` / `gui.outline(x1, y1, x2, y2, color)` / `gui.horizontalLine(x1, x2, y, color)`
      * `gui.text(font, String, x, y, color)` / `gui.centeredText(font, Component/String, centerX, y, color)`
      * `gui.blit(Identifier, x1, y1, x2, y2, u0, u1, v0, v1)` (para desenhar texturas `.png` escaladas no retângulo destino).
-4. **Entidades, Renderers e Armaduras:**
+4. **Entidades, Blocos, Renderers e Armaduras:**
    * `EntityType.Builder.build(...)` exige `ResourceKey<EntityType<?>>`.
    * `HumanoidMobRenderer` utiliza `HumanoidRenderState` e `HumanoidModel<HumanoidRenderState>`.
    * `ModelLayers.PLAYER_INNER_ARMOR` / `PLAYER_OUTER_ARMOR` foram substituídos por **`ModelLayers.PLAYER_ARMOR`** com **`ArmorModelSet.bake(ModelLayers.PLAYER_ARMOR, context.getModelSet(), HumanoidModel::new)`** no `HumanoidArmorLayer`.
    * `AbstractArrow` foi movida de pacote (`net.minecraft.world.entity.projectile.arrow.AbstractArrow`); ao usar `ProjectileUtil.getMobArrow(...)`, pode-se usar `var`.
-   * Constantes como `EntityType.SKELETON` mudaram ou não existem com o mesmo nome; para mobs vanilla, prefira buscar via `BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.fromNamespaceAndPath("minecraft", id))`.
+   * Constantes como `EntityType.SKELETON` e `Blocks.RED_BANNER` mudaram ou não existem com o mesmo nome; para mobs e blocos coloridos vanilla, busque via `BuiltInRegistries.ENTITY_TYPE.getValue(...)` e `BuiltInRegistries.BLOCK.getValue(Identifier.fromNamespaceAndPath("minecraft", id))`.
 5. **Invasões, Comandos e Estruturas:**
    * Permissões de comando usam `Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)`.
    * `ServerBossEvent` exige `UUID` no construtor: `new ServerBossEvent(UUID.randomUUID(), Component, BossBarColor, BossBarOverlay)`.
@@ -97,7 +102,8 @@ OneKingdown/
         │   ├── client/
         │   │   ├── gui/
         │   │   │   ├── KingdomMinimapOverlay.java    # Minimapa em tempo real e KeyMapping [M]
-        │   │   │   └── RecruiterScreen.java          # GUI padrão de contratação (Nv. 1 a 5 + preços)
+        │   │   │   ├── RecruiterScreen.java          # GUI padrão de contratação (Nv. 1 a 5 + preços)
+        │   │   │   └── RoomSetupScreen.java          # Lobby responsivo de configuração de sala e entrada por código
         │   │   ├── map/
         │   │   │   └── WorldMapCache.java            # Cache leve de terreno (16x16 px por chunk)
         │   │   └── renderer/
@@ -106,15 +112,19 @@ OneKingdown/
         │   │   ├── OpenRecruiterPayload.java         # Pacote Server -> Client (abre RecruiterScreen)
         │   │   ├── HireUnitPayload.java              # Pacote Client -> Server (solicita contratação)
         │   │   ├── RequestMapPayload.java            # Pacote Client -> Server (solicita dados do mapa)
-        │   │   └── OpenMapPayload.java               # Pacote Server -> Client (atualiza marcadores do minimapa)
+        │   │   ├── OpenMapPayload.java               # Pacote Server -> Client (atualiza marcadores do minimapa)
+        │   │   ├── OpenRoomSetupPayload.java         # Pacote Server -> Client (abre RoomSetupScreen)
+        │   │   ├── ConfirmRoomSetupPayload.java      # Pacote Client -> Server (aplica config do Host)
+        │   │   └── JoinRoomCodePayload.java          # Pacote Client -> Server (valida código de convidado)
         │   ├── kingdom/
         │   │   ├── KingdomHudOverlay.java            # HUD recolhível e KeyMapping [H]
-        │   │   ├── KingdomHudPayload.java            # Pacote Server -> Client (HUD) + registro de payloads
-        │   │   ├── KingdomData.java                  # Modelo de dados, dimensões (120x120) e posições proporcionais
-        │   │   ├── KingdomManager.java               # Regras de negócio, geração, upgrades, produção, HUD e gatilho de invasão
-        │   │   ├── KingdomEvents.java                # Listeners de eventos de servidor, comandos e proteção
+        │   │   ├── KingdomHudPayload.java            # Pacote Server -> Client (HUD) + registro central de payloads
+        │   │   ├── KingdomTheme.java                 # Enums de terrenos temáticos e cores de estandarte
+        │   │   ├── KingdomData.java                  # Modelo de dados, salas com código, dimensões (120x120) e posições proporcionais
+        │   │   ├── KingdomManager.java               # Regras de negócio, salas/códigos, spawn compacto, upgrades, produção, HUD e invasão
+        │   │   ├── KingdomEvents.java                # Listeners de eventos de servidor, comandos (/reino codigo, etc.) e proteção
         │   │   ├── KingdomNpcManager.java            # Spawn, tags (MINER_UNIT/FARMER_UNIT), contratação com níveis e equipamentos
-        │   │   └── CastleStructureBuilder.java       # Construção procedural, .nbt (fazendas nv2/nv4, rotação), baú da fazenda e preservação por setor
+        │   │   └── CastleStructureBuilder.java       # Construção procedural, .nbt (fazendas nv2/nv4), estandartes, limpeza sem drops e preservação por setor
         │   ├── npc/
         │   │   ├── KingdomGuardEntity.java           # Entidade humanoide de guarda (Guerreiro/Arqueiro)
         │   │   └── ModEntities.java                  # DeferredRegister e atributos das entidades do mod
@@ -145,13 +155,20 @@ OneKingdown/
   * `onRegisterRenderers(EntityRenderersEvent.RegisterRenderers)` → registra `KingdomGuardRenderer` para `ModEntities.KINGDOM_GUARD`.
   * `onClientSetup(FMLClientSetupEvent)` → registra `KingdomHudOverlay::onRenderGui`, `KingdomHudOverlay::onClientTick`, `KingdomMinimapOverlay::onRenderGui`, `KingdomMinimapOverlay::onClientTick` e `WorldMapCache::onClientTick` no `NeoForge.EVENT_BUS`.
 
-### 5.2. Fluxo de Sincronização da HUD (Server → Client)
+### 5.2. Fluxo de Lobby, Salas e Códigos de Convite
+
+1. **Login (`KingdomEvents.onPlayerLoggedIn`):** Se o jogador ainda não possui reino, o servidor envia `OpenRoomSetupPayload` em vez de gerar o reino automaticamente.
+2. **Configuração pelo Host (`RoomSetupScreen` → `ConfirmRoomSetupPayload`):** O Host escolhe de 1 a 5 jogadores, define o `KingdomTheme` e a `BannerColor` de cada slot e inicia o jogo. `KingdomManager.applyRoomSetup` grava a configuração na sala, gera o reino do Host no slot 0 e exibe o código `OKD-XXXX` no chat (também consultável via `/reino codigo`).
+3. **Entrada de Convidados (`JoinRoomCodePayload`):** Novos jogadores que entram após a sala configurada recebem o modo de entrada por código. `KingdomManager.joinRoomWithCode` valida o código e a disponibilidade de vagas, atribuindo o próximo slot pré-configurado.
+4. **Posicionamento Compacto (`COMPACT_KINGDOM_STEP = 150`):** Os 5 slots são posicionados em cruz ao redor da origem da sala: $(0, 0)$, $(150, 0)$, $(-150, 0)$, $(0, 150)$ e $(0, -150)$, deixando 30 blocos livres entre as muralhas dos reinos $120 \times 120$.
+
+### 5.3. Fluxo de Sincronização da HUD (Server → Client)
 
 1. **Coleta no Servidor (`KingdomManager.sendHudSnapshot`):** Varre containers e entidades dentro dos limites do reino e envia `KingdomHudPayload` via `PacketDistributor.sendToPlayer`.
 2. **Transporte (`KingdomHudPayload`):** ID `onekingdown:kingdom_hud`, armazena snapshot em `clientState` e centraliza o registro de todos os payloads do mod (`registerPayloads`).
 3. **Renderização (`KingdomHudOverlay`):** Canto superior direito (`SCALE = 0.70f`), alternado pela tecla **`H`**.
 
-### 5.3. Sistema de Contratação via GUI, Níveis (1 a 5) e Guarda Humanoide
+### 5.4. Sistema de Contratação via GUI, Níveis (1 a 5) e Guarda Humanoide
 
 1. **Abertura (Server → Client):** Clique direito no `ROLE_GUARD_LEADER`, `ROLE_MINE_MASTER` ou `ROLE_FARM_MASTER` envia `OpenRecruiterPayload` com o saldo de `IRON_INGOT`, `OAK_LOG` e `BREAD` do jogador e abre `RecruiterScreen` via `setScreenAndShow`.
 2. **Seleção e Envio (Client → Server):** `RecruiterScreen` exibe cada nível com preço formatado e colorido dinamicamente (verde/vermelho) e envia `HireUnitPayload(recruiterRole, unitType, level)` via `ClientPacketDistributor.sendToServer`.
@@ -165,14 +182,16 @@ OneKingdown/
 | **Nv. 4** | Espada de Diamante + Diamante | Arco + Diamante | Picareta de Diamante | Enxada de Diamante | 60 |
 | **Nv. 5** | Espada de Netherita + Netherita | Arco + Netherita | Picareta de Netherita | Enxada de Netherita | 75 |
 
-### 5.4. Estruturas, Escala do Reino e Preservação de Itens (`CastleStructureBuilder` & `KingdomData`)
+### 5.5. Estruturas, Terrenos Temáticos, Estandartes e Preservação de Itens (`CastleStructureBuilder` & `KingdomData`)
 
-* **Escala e Posições Proporcionais:** Reinos possuem `sideSize = 120` e espaçamento `260`. Os métodos `getBarracksPos()`, `getMinePos()` e `getFarmPos()` em `KingdomData` calculam o deslocamento proporcional ($\max(22, (\text{sideSize} / 2) - 22)$), afastando prédios e NPCs do castelo sem encostar na borda do reino.
+* **Escala e Posições Proporcionais:** Reinos possuem `sideSize = 120`. Os métodos `getBarracksPos()`, `getMinePos()` e `getFarmPos()` em `KingdomData` calculam o deslocamento proporcional ($\max(22, (\text{sideSize} / 2) - 22)$), afastando prédios e NPCs do castelo sem encostar na borda do reino.
+* **Terreno Temático e Limpeza Sem Drops:** `prepareTerritoryPlatform` limpa de cima para baixo desde `Heightmap.Types.WORLD_SURFACE` até `baseY + 1` com `Block.UPDATE_CLIENTS` (evitando montanhas flutuantes e drops de folhas/mato), aplica os blocos do `KingdomTheme` do reino e descarta eventuais `ItemEntity` soltos com `clearDroppedItems`.
+* **Estandartes do Reino:** `placeKingdomBanners` posiciona bandeiras da `BannerColor` escolhida (obtida via `BuiltInRegistries.BLOCK`) ao lado do trono e nos portões Norte e Sul do castelo.
 * **Upgrade Sem Teleporte:** Em `KingdomManager.addXpAndCheckUpgrade`, o upgrade reconstrói as estruturas e sincroniza os NPCs mantendo o jogador na posição atual.
 * **Fazendas `.nbt`, Rotação e Baú:** O Tier 2+ utiliza `farm_house_nv2_by_potatoplaysgames` e o Tier 4+ utiliza `farm_house_nv4_by_norcik1` com `Rotation.CLOCKWISE_180` (pivô no centro do template). Ao posicionar um `.nbt` de fazenda, containers nativos da estrutura são limpos para evitar duplicação e um baú de coleta é criado na borda Sul (`southEdgeZ`), voltado para o castelo.
 * **Isolamento por Setor:** Itens são coletados separadamente para Fazenda, Mina, Quartel e Castelo antes de nivelar a plataforma e restaurados nos respectivos setores (`ChestBlockEntity`), evitando que itens de um setor contaminem ou dupliquem em outro.
 
-### 5.5. Sistema de Invasões PvE (`invasion/`)
+### 5.6. Sistema de Invasões PvE (`invasion/`)
 
 * **`InvasionDefinition` & `InvasionRegistry`:** Define cada invasão com ID, nome, estrutura `.nbt`, tier de gatilho, número de ondas, inimigos base por onda, cor da `BossBar` e lista de mobs (`enemyPool`). A primeira invasão registrada é `INFERNAL_CITADEL` (`onekingdown:infernal_blackstone_citadel`, Tier 5, 3 ondas, atualmente usando `skeleton` e `blaze` como placeholders até a criação dos demônios customizados).
 * **`InvasionManager`:**
@@ -182,7 +201,7 @@ OneKingdown/
   * `getCitadelPos()` / `getActiveInvasionName()`: Expõem a localização e o nome da invasão ativa para o minimapa.
 * **`InvasionCommand`:** Comandos `/invasao start <id>`, `/invasao stop` e `/invasao status`.
 
-### 5.6. Minimapa em Tempo Real (`KingdomMinimapOverlay` & `WorldMapCache`)
+### 5.7. Minimapa em Tempo Real (`KingdomMinimapOverlay` & `WorldMapCache`)
 
 1. **Cache de Terreno (`WorldMapCache`):** Escaneia gradualmente até 4 chunks por ciclo (a cada 20 ticks, raio de 3 chunks ao redor do jogador) armazenando cores de mapa com sombreamento de relevo em um `ConcurrentHashMap<Long, int[]>`. Limpa automaticamente ao trocar de dimensão.
 2. **Sincronização de Marcadores (`RequestMapPayload` → `OpenMapPayload`):** A cada 5 segundos (ou ao reexibir o mapa com `M`), o cliente solicita os marcadores ao servidor, que retorna coordenadas do Castelo, Quartel, Mina, Fazenda e da Cidadela de Invasão (se ativa).
@@ -226,8 +245,8 @@ git push origin main
    * Reforçar proteção/imunidade dos trabalhadores (`TAG_PROTECTED`) contra dano letal de monstros noturnos e sincronizar a contagem de guardas caso algum morra em combate.
    * Adicionar skin customizada em `assets/onekingdown/textures/entity/kingdom_guard.png` para o `KingdomGuardRenderer`.
 3. **Evolução Visual de Estruturas (Schematics NBT):**
-   * Carregamento de arquivos `.nbt` de castelos e demais prédios que evoluem automaticamente conforme o tier/nível.
+   * Carregamento de arquivos `.nbt` de castelos e demais prédios (incluindo variações por tema de terreno) que evoluem automaticamente conforme o tier/nível.
 4. **Invasões PvP e Salas Dinâmicas (até 5 jogadores):**
-   * Mecânica de ataque entre reinos vizinhos na mesma sala.
+   * Mecânica de ataque entre reinos vizinhos na mesma sala e exibição da bandeira/cor dos reinos vizinhos no minimapa.
 5. **Polimento e Localização:**
    * Criar `src/main/resources/assets/onekingdown/lang/pt_br.json` para traduzir `key.onekingdown.toggle_hud` (`"Recolher/Expandir HUD do Reino"`) e `key.onekingdown.open_map` (`"Mostrar/Ocultar Minimapa"`).

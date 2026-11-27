@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
 import grouponekingdown.onekingdown.Config;
 import grouponekingdown.onekingdown.invasion.InvasionManager;
+import grouponekingdown.onekingdown.network.OpenRoomSetupPayload;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -28,12 +29,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 
 public class KingdomManager {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Random RANDOM = new Random();
+
+    // Distancia entre centros dos reinos na mesma sala (120x120 -> 30 blocos livres entre muralhas)
+    private static final int COMPACT_KINGDOM_STEP = 150;
 
     private static KingdomManager instance;
 
@@ -85,6 +91,105 @@ public class KingdomManager {
         }
     }
 
+    private static String generateRoomCode() {
+        int num = 1000 + RANDOM.nextInt(9000);
+        return "OKD-" + num;
+    }
+
+    public KingdomData.Room getOrCreatePrimaryRoom() {
+        if (!state.rooms.isEmpty()) {
+            KingdomData.Room first = state.rooms.get(0);
+            if (first.roomCode == null || first.roomCode.isEmpty()) {
+                first.roomCode = generateRoomCode();
+                saveToDisk();
+            }
+            return first;
+        }
+        KingdomData.Room newRoom = new KingdomData.Room(
+                state.nextRoomId++,
+                Math.min(5, Math.max(1, Config.maxPlayersPerRoom)),
+                generateRoomCode()
+        );
+        state.rooms.add(newRoom);
+        saveToDisk();
+        return newRoom;
+    }
+
+    public void openRoomSetupForPlayer(ServerPlayer player) {
+        KingdomData.Room room = getOrCreatePrimaryRoom();
+        boolean alreadyConfigured = room.configured;
+        String codeToSend = alreadyConfigured ? "" : room.roomCode;
+        PacketDistributor.sendToPlayer(player, new OpenRoomSetupPayload(codeToSend, alreadyConfigured, room.maxPlayers));
+    }
+
+    public static void applyRoomSetup(ServerPlayer host, int maxPlayers, int[] themeOrdinals, int[] bannerOrdinals) {
+        KingdomManager manager = get();
+        if (manager == null) return;
+
+        int clampedMax = Math.max(1, Math.min(5, maxPlayers));
+        KingdomData.Room room = manager.getOrCreatePrimaryRoom();
+        room.maxPlayers = clampedMax;
+        room.slotThemes.clear();
+        room.slotBanners.clear();
+        for (int i = 0; i < clampedMax; i++) {
+            int theme = (themeOrdinals != null && i < themeOrdinals.length) ? themeOrdinals[i] : i;
+            int banner = (bannerOrdinals != null && i < bannerOrdinals.length) ? bannerOrdinals[i] : i;
+            room.slotThemes.add(theme);
+            room.slotBanners.add(banner);
+        }
+        room.configured = true;
+        manager.saveToDisk();
+
+        ServerLevel overworld = host.level().getServer().overworld();
+        KingdomData.Kingdom kingdom = manager.createKingdomInRoom(overworld, host, room);
+        manager.teleportToKingdom(overworld, host, kingdom);
+
+        host.sendSystemMessage(Component.literal(
+                "§6§l[OneKingdown] Sala configurada para " + room.maxPlayers + " jogador(es)!"
+        ));
+        host.sendSystemMessage(Component.literal(
+                "§aCodigo da Sala (envie aos convidados): §e§l" + room.roomCode
+        ));
+        host.sendSystemMessage(Component.literal(
+                "§7Seu reino: §f" + kingdom.getTheme().displayName
+                        + " §7| Bandeira: §f" + kingdom.getBannerColor().displayName
+        ));
+    }
+
+    public static void joinRoomWithCode(ServerPlayer guest, String enteredCode) {
+        KingdomManager manager = get();
+        if (manager == null) return;
+
+        String normalized = enteredCode == null ? "" : enteredCode.trim().toUpperCase();
+        Optional<KingdomData.Room> roomOpt = manager.state.rooms.stream()
+                .filter(r -> r.configured && r.roomCode != null && r.roomCode.equalsIgnoreCase(normalized))
+                .findFirst();
+
+        if (roomOpt.isEmpty()) {
+            guest.sendSystemMessage(Component.literal("§c[OneKingdown] Codigo invalido! Tente novamente."));
+            manager.openRoomSetupForPlayer(guest);
+            return;
+        }
+
+        KingdomData.Room room = roomOpt.get();
+        if (!room.hasSpace()) {
+            guest.sendSystemMessage(Component.literal("§c[OneKingdown] Esta sala ja esta cheia (" + room.maxPlayers + "/" + room.maxPlayers + ")!"));
+            return;
+        }
+
+        ServerLevel overworld = guest.level().getServer().overworld();
+        KingdomData.Kingdom kingdom = manager.createKingdomInRoom(overworld, guest, room);
+        manager.teleportToKingdom(overworld, guest, kingdom);
+
+        guest.sendSystemMessage(Component.literal(
+                "§a[OneKingdown] Voce entrou na Sala #" + room.roomId + " (" + room.roomCode + ")!"
+        ));
+        guest.sendSystemMessage(Component.literal(
+                "§7Seu reino: §f" + kingdom.getTheme().displayName
+                        + " §7| Bandeira: §f" + kingdom.getBannerColor().displayName
+        ));
+    }
+
     public Optional<KingdomData.Kingdom> getKingdomByPlayer(UUID uuid) {
         String id = uuid.toString();
         for (KingdomData.Room room : state.rooms) {
@@ -112,6 +217,59 @@ public class KingdomManager {
         return Optional.empty();
     }
 
+    private static int[] getCompactSlotOffset(int slotIndex) {
+        return switch (slotIndex) {
+            case 0 -> new int[]{0, 0};
+            case 1 -> new int[]{COMPACT_KINGDOM_STEP, 0};
+            case 2 -> new int[]{-COMPACT_KINGDOM_STEP, 0};
+            case 3 -> new int[]{0, COMPACT_KINGDOM_STEP};
+            case 4 -> new int[]{0, -COMPACT_KINGDOM_STEP};
+            default -> new int[]{COMPACT_KINGDOM_STEP * slotIndex, 0};
+        };
+    }
+
+    private KingdomData.Kingdom createKingdomInRoom(ServerLevel overworld, ServerPlayer player, KingdomData.Room targetRoom) {
+        Optional<KingdomData.Kingdom> existing = getKingdomByPlayer(player.getUUID());
+        if (existing.isPresent()) {
+            KingdomNpcManager.syncKingdomNpcs(overworld, existing.get());
+            return existing.get();
+        }
+
+        int slotIndex = targetRoom.kingdoms.size();
+        int roomOriginX = (targetRoom.roomId - 1) * Config.roomSpacing;
+        int roomOriginZ = 0;
+
+        int[] offset = getCompactSlotOffset(slotIndex);
+        int centerX = roomOriginX + offset[0];
+        int centerZ = roomOriginZ + offset[1];
+
+        overworld.getChunk(centerX >> 4, centerZ >> 4);
+        int surfaceY = Math.max(overworld.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, centerX, centerZ), 64);
+
+        int themeOrdinal = targetRoom.getThemeForSlot(slotIndex);
+        int bannerOrdinal = targetRoom.getBannerForSlot(slotIndex);
+
+        KingdomData.Kingdom kingdom = new KingdomData.Kingdom(
+                player.getUUID(),
+                player.getName().getString(),
+                targetRoom.roomId,
+                slotIndex,
+                centerX,
+                surfaceY,
+                centerZ,
+                Config.kingdomSideSize,
+                themeOrdinal,
+                bannerOrdinal
+        );
+
+        targetRoom.kingdoms.add(kingdom);
+        CastleStructureBuilder.buildOrUpgradeCastle(overworld, kingdom);
+        KingdomNpcManager.syncKingdomNpcs(overworld, kingdom);
+        saveToDisk();
+
+        return kingdom;
+    }
+
     public KingdomData.Kingdom getOrCreateKingdom(ServerLevel overworld, ServerPlayer player) {
         Optional<KingdomData.Kingdom> existing = getKingdomByPlayer(player.getUUID());
         if (existing.isPresent()) {
@@ -123,44 +281,17 @@ public class KingdomManager {
                 .filter(KingdomData.Room::hasSpace)
                 .findFirst()
                 .orElseGet(() -> {
-                    KingdomData.Room newRoom = new KingdomData.Room(state.nextRoomId++, Config.maxPlayersPerRoom);
+                    KingdomData.Room newRoom = new KingdomData.Room(
+                            state.nextRoomId++,
+                            Math.min(5, Math.max(1, Config.maxPlayersPerRoom)),
+                            generateRoomCode()
+                    );
                     state.rooms.add(newRoom);
-                    LOGGER.info("Nova sala criada: Sala #{} (limite: {} jogadores)", newRoom.roomId, newRoom.maxPlayers);
+                    LOGGER.info("Nova sala criada: Sala #{} ({})", newRoom.roomId, newRoom.roomCode);
                     return newRoom;
                 });
 
-        int slotIndex = targetRoom.kingdoms.size();
-        int roomOriginX = (targetRoom.roomId - 1) * Config.roomSpacing;
-        int roomOriginZ = 0;
-
-        int centerX = roomOriginX;
-        int centerZ = roomOriginZ;
-        if (targetRoom.maxPlayers > 1) {
-            double angle = (2.0 * Math.PI * slotIndex) / targetRoom.maxPlayers;
-            centerX = roomOriginX + (int) Math.round(Math.cos(angle) * Config.kingdomSpacing);
-            centerZ = roomOriginZ + (int) Math.round(Math.sin(angle) * Config.kingdomSpacing);
-        }
-
-        overworld.getChunk(centerX >> 4, centerZ >> 4);
-        int surfaceY = Math.max(overworld.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, centerX, centerZ), 64);
-
-        KingdomData.Kingdom kingdom = new KingdomData.Kingdom(
-                player.getUUID(),
-                player.getName().getString(),
-                targetRoom.roomId,
-                slotIndex,
-                centerX,
-                surfaceY,
-                centerZ,
-                Config.kingdomSideSize
-        );
-
-        targetRoom.kingdoms.add(kingdom);
-        CastleStructureBuilder.buildOrUpgradeCastle(overworld, kingdom);
-        KingdomNpcManager.syncKingdomNpcs(overworld, kingdom);
-        saveToDisk();
-
-        return kingdom;
+        return createKingdomInRoom(overworld, player, targetRoom);
     }
 
     public void addXpAndCheckUpgrade(ServerLevel overworld, ServerPlayer player, int amount) {
@@ -204,7 +335,7 @@ public class KingdomManager {
             productionTickCounter = 0;
         }
 
-        boolean runHudUpdate = hudTickCounter >= 20; // Atualiza HUD a cada 1 segundo
+        boolean runHudUpdate = hudTickCounter >= 20;
         if (runHudUpdate) {
             hudTickCounter = 0;
         }

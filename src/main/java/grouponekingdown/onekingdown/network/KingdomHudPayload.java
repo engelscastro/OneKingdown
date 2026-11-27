@@ -1,9 +1,12 @@
 package grouponekingdown.onekingdown.kingdom;
 
 import grouponekingdown.onekingdown.Onekingdown;
+import grouponekingdown.onekingdown.network.ConfirmRoomSetupPayload;
 import grouponekingdown.onekingdown.network.HireUnitPayload;
+import grouponekingdown.onekingdown.network.JoinRoomCodePayload;
 import grouponekingdown.onekingdown.network.OpenMapPayload;
 import grouponekingdown.onekingdown.network.OpenRecruiterPayload;
+import grouponekingdown.onekingdown.network.OpenRoomSetupPayload;
 import grouponekingdown.onekingdown.network.RequestMapPayload;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -88,6 +91,21 @@ public record KingdomHudPayload(
                 OpenMapPayload.TYPE,
                 OpenMapPayload.STREAM_CODEC,
                 OpenMapPayload::handleOnClient
+        );
+        registrar.playToClient(
+                OpenRoomSetupPayload.TYPE,
+                OpenRoomSetupPayload.STREAM_CODEC,
+                OpenRoomSetupPayload::handleOnClient
+        );
+        registrar.playToServer(
+                ConfirmRoomSetupPayload.TYPE,
+                ConfirmRoomSetupPayload.STREAM_CODEC,
+                ConfirmRoomSetupPayload::handleOnServer
+        );
+        registrar.playToServer(
+                JoinRoomCodePayload.TYPE,
+                JoinRoomCodePayload.STREAM_CODEC,
+                JoinRoomCodePayload::handleOnServer
         );
     }
 }

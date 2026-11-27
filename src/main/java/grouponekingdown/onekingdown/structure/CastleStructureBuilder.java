@@ -22,11 +22,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
+
 public class CastleStructureBuilder {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     public static void buildOrUpgradeCastle(ServerLevel level, KingdomData.Kingdom kingdom) {
         int tier = kingdom.currentTier;
+        KingdomTheme theme = kingdom.getTheme();
 
         // 1. Preservar itens separados por setor antes da reconstrucao
         List<ItemStack> savedFarmItems = collectAndClearArea(level, kingdom.getFarmPos(), 18);
@@ -34,8 +39,8 @@ public class CastleStructureBuilder {
         List<ItemStack> savedBarracksItems = collectAndClearArea(level, kingdom.getBarracksPos(), 18);
         List<ItemStack> savedCastleItems = collectAndClearContainers(level, kingdom);
 
-        // 2. Nivelar e limpar a plataforma completa do reino
-        prepareTerritoryPlatform(level, kingdom);
+        // 2. Nivelar e limpar a plataforma completa do reino com o terreno escolhido
+        prepareTerritoryPlatform(level, kingdom, theme);
 
         // 3. Construir Castelo no centro + Quartel (Leste) + Mina (Oeste) + Plantacao (Norte)
         if (!tryPlaceNbt(level, "castle_tier_" + tier, kingdom.getCenterPos())) {
@@ -60,15 +65,17 @@ public class CastleStructureBuilder {
         if (farmSize == null) {
             buildProceduralFarm(level, kingdom.getFarmPos(), tier);
         } else {
-            // Limpa itens nativos que venham dentro do proprio NBT para nao duplicar com os salvos
             clearContainersInArea(level, kingdom.getFarmPos(), 18);
-            farmChestPos = placeChestNextToNbt(level, kingdom.getFarmPos(), farmSize);
+            farmChestPos = placeChestNextToNbt(level, kingdom.getFarmPos(), farmSize, theme);
         }
 
-        // 4. Caminhos de pedra ligando o Castelo as construcoes
-        buildConnectingPaths(level, kingdom);
+        // 4. Caminhos tematicos ligando o Castelo as construcoes
+        buildConnectingPaths(level, kingdom, theme);
 
-        // 5. Restaurar cada setor apenas nos seus proprios baus
+        // 5. Estandartes (bandeiras) com a cor do reino
+        placeKingdomBanners(level, kingdom);
+
+        // 6. Restaurar cada setor apenas nos seus proprios baus
         if (farmChestPos != null && !savedFarmItems.isEmpty()) {
             BlockEntity be = level.getBlockEntity(farmChestPos);
             if (be instanceof Container container) {
@@ -83,14 +90,32 @@ public class CastleStructureBuilder {
         restoreItemsToArea(level, kingdom.getMinePos(), 18, savedMineItems);
         restoreItemsToArea(level, kingdom.getBarracksPos(), 18, savedBarracksItems);
 
-        // Apenas itens que nao couberam na fazenda vao para o castelo (sem duplicar)
         savedCastleItems.addAll(savedFarmItems);
         savedCastleItems.addAll(savedMineItems);
         savedCastleItems.addAll(savedBarracksItems);
         restoreItemsToArea(level, kingdom.getCenterPos(), 20, savedCastleItems);
 
-        // Fallback caso os baus do castelo tenham enchido
         restoreFallbackChests(level, kingdom, savedCastleItems);
+    }
+
+    private static void placeKingdomBanners(ServerLevel level, KingdomData.Kingdom kingdom) {
+        BlockState bannerState = kingdom.getBannerColor().getBannerBlock().defaultBlockState();
+        int cx = kingdom.centerX;
+        int cy = kingdom.centerY;
+        int cz = kingdom.centerZ;
+        int clampedTier = Math.min(kingdom.currentTier, 4);
+        int radius = 5 + (clampedTier * 2);
+
+        // Estandartes ao lado do trono
+        level.setBlock(new BlockPos(cx - 2, cy + 1, cz), bannerState, Block.UPDATE_ALL);
+        level.setBlock(new BlockPos(cx + 2, cy + 1, cz), bannerState, Block.UPDATE_ALL);
+
+        // Estandartes nos portoes (Sul e Norte) do castelo
+        int gateDist = radius + 2;
+        level.setBlock(new BlockPos(cx - 2, cy + 1, cz + gateDist), bannerState, Block.UPDATE_ALL);
+        level.setBlock(new BlockPos(cx + 2, cy + 1, cz + gateDist), bannerState, Block.UPDATE_ALL);
+        level.setBlock(new BlockPos(cx - 2, cy + 1, cz - gateDist), bannerState, Block.UPDATE_ALL);
+        level.setBlock(new BlockPos(cx + 2, cy + 1, cz - gateDist), bannerState, Block.UPDATE_ALL);
     }
 
     private static String getFarmNbtForTier(int tier) {
@@ -99,7 +124,7 @@ public class CastleStructureBuilder {
         } else if (tier >= 2) {
             return "farm_house_nv2_by_potatoplaysgames";
         }
-        return null; // Tier 1 usa a plantacao basica procedural
+        return null;
     }
 
     private static boolean tryPlaceNbt(ServerLevel level, String name, BlockPos center) {
@@ -128,11 +153,11 @@ public class CastleStructureBuilder {
         return null;
     }
 
-    private static BlockPos placeChestNextToNbt(ServerLevel level, BlockPos center, Vec3i size) {
+    private static BlockPos placeChestNextToNbt(ServerLevel level, BlockPos center, Vec3i size, KingdomTheme theme) {
         int southEdgeZ = center.getZ() - (size.getZ() / 2) + size.getZ();
         BlockPos chestPos = new BlockPos(center.getX() + 2, center.getY() + 1, southEdgeZ);
 
-        level.setBlock(chestPos.below(), Blocks.GRASS_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
+        level.setBlock(chestPos.below(), theme.surfaceBlock.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(chestPos.above(), Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(chestPos, Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
         return chestPos;
@@ -222,36 +247,54 @@ public class CastleStructureBuilder {
         }
     }
 
-    private static void prepareTerritoryPlatform(ServerLevel level, KingdomData.Kingdom kingdom) {
+    private static void prepareTerritoryPlatform(ServerLevel level, KingdomData.Kingdom kingdom, KingdomTheme theme) {
         int minX = kingdom.getMinX();
         int maxX = kingdom.getMaxX();
         int minZ = kingdom.getMinZ();
         int maxZ = kingdom.getMaxZ();
         int baseY = kingdom.centerY;
 
+        BlockState subSurface = theme.subSurfaceBlock.defaultBlockState();
+        BlockState borderState = theme.borderBlock.defaultBlockState();
+        BlockState surfaceState = theme.surfaceBlock.defaultBlockState();
+        BlockState airState = Blocks.AIR.defaultBlockState();
+
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
+                // Limpa de cima para baixo ate o topo real do terreno (evita montanhas flutuantes e drops)
+                int worldTopY = level.getHeight(Heightmap.Types.WORLD_SURFACE, x, z);
+                int clearTopY = Math.max(baseY + 26, worldTopY + 2);
+                for (int y = clearTopY; y >= baseY + 1; y--) {
+                    BlockPos airPos = new BlockPos(x, y, z);
+                    if (!level.getBlockState(airPos).isAir()) {
+                        level.setBlock(airPos, airState, Block.UPDATE_CLIENTS);
+                    }
+                }
+
                 for (int y = baseY - 3; y < baseY; y++) {
-                    level.setBlock(new BlockPos(x, y, z), Blocks.DIRT.defaultBlockState(), Block.UPDATE_ALL);
+                    level.setBlock(new BlockPos(x, y, z), subSurface, Block.UPDATE_CLIENTS);
                 }
 
                 boolean isBorder = (x == minX || x == maxX || z == minZ || z == maxZ);
-                BlockState surface = isBorder
-                        ? Blocks.STONE_BRICKS.defaultBlockState()
-                        : Blocks.GRASS_BLOCK.defaultBlockState();
-                level.setBlock(new BlockPos(x, baseY, z), surface, Block.UPDATE_ALL);
-
-                for (int y = baseY + 1; y <= baseY + 26; y++) {
-                    BlockPos airPos = new BlockPos(x, y, z);
-                    if (!level.getBlockState(airPos).isAir()) {
-                        level.setBlock(airPos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
-                    }
-                }
+                level.setBlock(new BlockPos(x, baseY, z), isBorder ? borderState : surfaceState, Block.UPDATE_CLIENTS);
             }
+        }
+
+        // Remove qualquer semente, muda ou bloco que tenha dropado durante a limpeza
+        clearDroppedItems(level, kingdom);
+    }
+
+    private static void clearDroppedItems(ServerLevel level, KingdomData.Kingdom kingdom) {
+        AABB box = new AABB(
+                kingdom.getMinX() - 2, kingdom.centerY - 5, kingdom.getMinZ() - 2,
+                kingdom.getMaxX() + 3, kingdom.centerY + 80, kingdom.getMaxZ() + 3
+        );
+        for (ItemEntity item : level.getEntitiesOfClass(ItemEntity.class, box)) {
+            item.discard();
         }
     }
 
-    private static void buildConnectingPaths(ServerLevel level, KingdomData.Kingdom kingdom) {
+    private static void buildConnectingPaths(ServerLevel level, KingdomData.Kingdom kingdom, KingdomTheme theme) {
         int cx = kingdom.centerX;
         int cy = kingdom.centerY;
         int cz = kingdom.centerZ;
@@ -259,13 +302,14 @@ public class CastleStructureBuilder {
         int minPathX = Math.min(kingdom.getMinePos().getX(), cx);
         int maxPathX = Math.max(kingdom.getBarracksPos().getX(), cx);
         int minPathZ = Math.min(kingdom.getFarmPos().getZ(), cz);
+        BlockState pathState = theme.pathBlock.defaultBlockState();
 
         // Caminho Leste-Oeste (Mina <-> Castelo <-> Quartel)
         for (int x = minPathX; x <= maxPathX; x++) {
             for (int dz = -1; dz <= 1; dz++) {
                 BlockPos pos = new BlockPos(x, cy, cz + dz);
-                if (level.getBlockState(pos).is(Blocks.GRASS_BLOCK)) {
-                    level.setBlock(pos, Blocks.DIRT_PATH.defaultBlockState(), Block.UPDATE_ALL);
+                if (level.getBlockState(pos).is(theme.surfaceBlock)) {
+                    level.setBlock(pos, pathState, Block.UPDATE_ALL);
                 }
             }
         }
@@ -273,8 +317,8 @@ public class CastleStructureBuilder {
         for (int z = minPathZ; z <= cz; z++) {
             for (int dx = -1; dx <= 1; dx++) {
                 BlockPos pos = new BlockPos(cx + dx, cy, z);
-                if (level.getBlockState(pos).is(Blocks.GRASS_BLOCK)) {
-                    level.setBlock(pos, Blocks.DIRT_PATH.defaultBlockState(), Block.UPDATE_ALL);
+                if (level.getBlockState(pos).is(theme.surfaceBlock)) {
+                    level.setBlock(pos, pathState, Block.UPDATE_ALL);
                 }
             }
         }
@@ -282,7 +326,7 @@ public class CastleStructureBuilder {
 
     private static void buildProceduralCastle(ServerLevel level, KingdomData.Kingdom kingdom, int tier) {
         int clampedTier = Math.min(tier, 4);
-        int radius = 5 + (clampedTier * 2); // Tier 1: 15x15 ... Tier 4: 27x27
+        int radius = 5 + (clampedTier * 2);
         int wallHeight = 3 + (clampedTier * 2);
 
         BlockState wallBlock = switch (clampedTier) {
@@ -343,9 +387,6 @@ public class CastleStructureBuilder {
         level.setBlock(new BlockPos(cx + 2, cy + 1, cz - 2), Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL);
     }
 
-    /**
-     * Quartel (Leste): Estrutura militar com muralha baixa, beliches, bigorna e bau de suprimentos.
-     */
     private static void buildProceduralBarracks(ServerLevel level, BlockPos center, int tier) {
         int cx = center.getX();
         int cy = center.getY();
@@ -369,16 +410,12 @@ public class CastleStructureBuilder {
             }
         }
 
-        // Equipamentos internos do Quartel
         level.setBlock(new BlockPos(cx + 2, cy + 1, cz - 2), Blocks.ANVIL.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx + 2, cy + 1, cz + 2), Blocks.SMITHING_TABLE.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx, cy + 1, cz - 3), Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx, cy + 3, cz), Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL);
     }
 
-    /**
-     * Mina (Oeste): Entrada de galeria escorada com madeira, trilhos, minerios expostos e bau de coleta.
-     */
     private static void buildProceduralMine(ServerLevel level, BlockPos center, int tier) {
         int cx = center.getX();
         int cy = center.getY();
@@ -391,14 +428,12 @@ public class CastleStructureBuilder {
             }
         }
 
-        // Arco de entrada da mina e monte de pedra/minerios
         for (int z = cz - 2; z <= cz + 2; z++) {
             level.setBlock(new BlockPos(cx - 2, cy + 1, z), Blocks.OAK_FENCE.defaultBlockState(), Block.UPDATE_ALL);
             level.setBlock(new BlockPos(cx - 2, cy + 2, z), Blocks.OAK_FENCE.defaultBlockState(), Block.UPDATE_ALL);
             level.setBlock(new BlockPos(cx - 2, cy + 3, z), Blocks.SPRUCE_PLANKS.defaultBlockState(), Block.UPDATE_ALL);
         }
 
-        // Bloco de minerios decorativos + trilho + bau de producao da mina
         level.setBlock(new BlockPos(cx - 3, cy + 1, cz - 1), Blocks.IRON_ORE.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx - 3, cy + 1, cz + 1), Blocks.GOLD_ORE.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx - 3, cy + 2, cz), Blocks.COAL_ORE.defaultBlockState(), Block.UPDATE_ALL);
@@ -408,9 +443,6 @@ public class CastleStructureBuilder {
         level.setBlock(new BlockPos(cx - 2, cy + 4, cz), Blocks.LANTERN.defaultBlockState(), Block.UPDATE_ALL);
     }
 
-    /**
-     * Plantacao (Norte): Horta irrigada cercada com trigo maduro, feno, defumador e bau de alimentos.
-     */
     private static void buildProceduralFarm(ServerLevel level, BlockPos center, int tier) {
         int cx = center.getX();
         int cy = center.getY();
@@ -435,7 +467,6 @@ public class CastleStructureBuilder {
             }
         }
 
-        // Area de preparo de pao e carne na entrada da plantacao
         level.setBlock(new BlockPos(cx - 2, cy + 1, cz + 3), Blocks.CHEST.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx + 2, cy + 1, cz + 3), Blocks.SMOKER.defaultBlockState(), Block.UPDATE_ALL);
         level.setBlock(new BlockPos(cx + 3, cy + 1, cz + 3), Blocks.HAY_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
