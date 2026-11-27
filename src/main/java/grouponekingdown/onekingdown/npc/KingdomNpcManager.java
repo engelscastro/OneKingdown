@@ -37,7 +37,9 @@ public class KingdomNpcManager {
     public static final String ROLE_MINE_MASTER = "MINE_MASTER";
     public static final String ROLE_FARM_MASTER = "FARM_MASTER";
     public static final String ROLE_GUARD_UNIT = "GUARD_UNIT";
-    public static final String ROLE_WORKER_UNIT = "WORKER_UNIT";
+    public static final String ROLE_MINER_UNIT = "MINER_UNIT";
+    public static final String ROLE_FARMER_UNIT = "FARMER_UNIT";
+    public static final String ROLE_WORKER_UNIT = "WORKER_UNIT"; // Legado
 
     private static Mob createMob(ServerLevel level, String entityId) {
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getValue(Identifier.fromNamespaceAndPath("minecraft", entityId));
@@ -61,7 +63,8 @@ public class KingdomNpcManager {
         boolean hasMineMaster = false;
         boolean hasFarmMaster = false;
         int currentGuards = 0;
-        int currentWorkers = 0;
+        int currentMiners = 0;
+        int currentFarmers = 0;
 
         for (Entity e : existing) {
             if (!e.isAlive()) continue;
@@ -92,7 +95,19 @@ public class KingdomNpcManager {
                     e.teleportTo(p.getX() + 0.5, p.getY() + 1.0, p.getZ() + 2.0);
                 }
                 case ROLE_GUARD_UNIT -> currentGuards++;
-                case ROLE_WORKER_UNIT -> currentWorkers++;
+                case ROLE_MINER_UNIT -> currentMiners++;
+                case ROLE_FARMER_UNIT -> currentFarmers++;
+                case ROLE_WORKER_UNIT -> {
+                    // Migra trabalhadores antigos automaticamente pela tag do nome
+                    String customName = e.hasCustomName() ? e.getCustomName().getString() : "";
+                    if (customName.contains("Mineiro")) {
+                        e.getPersistentData().putString(TAG_ROLE, ROLE_MINER_UNIT);
+                        currentMiners++;
+                    } else {
+                        e.getPersistentData().putString(TAG_ROLE, ROLE_FARMER_UNIT);
+                        currentFarmers++;
+                    }
+                }
             }
         }
 
@@ -128,13 +143,14 @@ public class KingdomNpcManager {
             spawnGuardUnit(level, kingdom, i);
         }
 
-        // 6. Trabalhadores visuais na Mina e na Plantacao
-        int desiredWorkers = kingdom.minersCount + kingdom.farmersCount;
-        for (int i = currentWorkers; i < desiredWorkers; i++) {
-            boolean isMiner = (i % 2 == 0);
-            BlockPos base = isMiner ? kingdom.getMinePos() : kingdom.getFarmPos();
-            String label = isMiner ? "§7Mineiro" : "§2Fazendeiro";
-            spawnWorkerUnit(level, kingdom, label, base.getX() + 1.5, base.getY() + 1.0, base.getZ() + 1.5);
+        // 6. Mineiros na Mina
+        for (int i = currentMiners; i < kingdom.minersCount; i++) {
+            spawnLeveledWorker(level, kingdom, "MINER", 1);
+        }
+
+        // 7. Fazendeiros na Plantacao
+        for (int i = currentFarmers; i < kingdom.farmersCount; i++) {
+            spawnLeveledWorker(level, kingdom, "FARMER", 1);
         }
     }
 
@@ -173,24 +189,6 @@ public class KingdomNpcManager {
         tag.putString(TAG_OWNER, kingdom.ownerUuid);
 
         level.addFreshEntity(guard);
-    }
-
-    private static void spawnWorkerUnit(ServerLevel level, KingdomData.Kingdom kingdom,
-                                        String name, double x, double y, double z) {
-        Mob worker = createMob(level, "villager");
-        if (worker == null) return;
-
-        worker.setPos(x, y, z);
-        worker.setCustomName(Component.literal(name));
-        worker.setCustomNameVisible(true);
-        worker.setPersistenceRequired();
-
-        CompoundTag tag = worker.getPersistentData();
-        tag.putString(TAG_ROLE, ROLE_WORKER_UNIT);
-        tag.putString(TAG_OWNER, kingdom.ownerUuid);
-        tag.putBoolean(TAG_PROTECTED, true);
-
-        level.addFreshEntity(worker);
     }
 
     /**
@@ -346,7 +344,7 @@ public class KingdomNpcManager {
         equipUnitByLevel(worker, unitType, unitLevel);
 
         CompoundTag tag = worker.getPersistentData();
-        tag.putString(TAG_ROLE, ROLE_WORKER_UNIT);
+        tag.putString(TAG_ROLE, isMiner ? ROLE_MINER_UNIT : ROLE_FARMER_UNIT);
         tag.putString(TAG_OWNER, kingdom.ownerUuid);
         tag.putBoolean(TAG_PROTECTED, true);
         tag.putInt(TAG_LEVEL, unitLevel);

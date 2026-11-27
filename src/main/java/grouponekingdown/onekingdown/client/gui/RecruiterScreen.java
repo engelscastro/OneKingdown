@@ -2,6 +2,7 @@ package grouponekingdown.onekingdown.client.gui;
 
 import grouponekingdown.onekingdown.Onekingdown;
 import grouponekingdown.onekingdown.network.HireUnitPayload;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -103,22 +104,23 @@ public class RecruiterScreen extends Screen {
     }
 
     private String getLevelLabel(String unitType, int level) {
+        int cost = level * 15;
+        boolean isGuard = "WARRIOR".equals(unitType) || "ARCHER".equals(unitType);
+        boolean isCreative = Minecraft.getInstance().player != null && Minecraft.getInstance().player.isCreative();
+        int available = isGuard ? this.ores : this.wood;
+        String priceColor = (isCreative || available >= cost) ? "§a" : "§c";
+        String currency = isGuard ? "Ferro" : "Mad";
+
         String tier = switch (level) {
-            case 1 -> "Madeira";
-            case 2 -> "Pedra";
+            case 1 -> "ARCHER".equals(unitType) ? "Couro" : "Madeira";
+            case 2 -> "ARCHER".equals(unitType) ? "Malha" : "Pedra";
             case 3 -> "Ferro";
             case 4 -> "Diamante";
             case 5 -> "Netherita";
             default -> "Madeira";
         };
-        int cost = level * 15;
-        return switch (unitType) {
-            case "WARRIOR" -> "Nv." + level + " Esp." + tier + " (" + cost + " Min)";
-            case "ARCHER" -> "Nv." + level + " Arco/" + tier + " (" + cost + " Min)";
-            case "MINER" -> "Nv." + level + " Pic." + tier + " (" + cost + " Mad)";
-            case "FARMER" -> "Nv." + level + " Enx." + tier + " (" + cost + " Mad)";
-            default -> "Nv." + level;
-        };
+
+        return "Nv." + level + " " + tier + " - " + priceColor + cost + " " + currency;
     }
 
     @Override
@@ -130,7 +132,7 @@ public class RecruiterScreen extends Screen {
         int centerX = this.leftPos + GUI_SIZE / 2;
         gui.centeredText(this.font, this.title, centerX, this.topPos + 51, 0xFF3B2410);
 
-        String resources = "Min:" + ores + "  Mad:" + wood + "  Com:" + food;
+        String resources = "Ferro:" + ores + "  Mad:" + wood + "  Pao:" + food;
         gui.centeredText(this.font, resources, centerX, this.topPos + 62, 0xFF5A391A);
 
         super.extractRenderState(gui, mouseX, mouseY, partialTick);

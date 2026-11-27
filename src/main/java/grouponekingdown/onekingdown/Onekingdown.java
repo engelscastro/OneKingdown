@@ -1,7 +1,11 @@
 package grouponekingdown.onekingdown;
 
 import com.mojang.logging.LogUtils;
+import grouponekingdown.onekingdown.client.gui.KingdomMinimapOverlay;
+import grouponekingdown.onekingdown.client.map.WorldMapCache;
 import grouponekingdown.onekingdown.client.renderer.KingdomGuardRenderer;
+import grouponekingdown.onekingdown.invasion.InvasionCommand;
+import grouponekingdown.onekingdown.invasion.InvasionManager;
 import grouponekingdown.onekingdown.kingdom.KingdomEvents;
 import grouponekingdown.onekingdown.kingdom.KingdomHudOverlay;
 import grouponekingdown.onekingdown.kingdom.KingdomHudPayload;
@@ -30,7 +34,9 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredItem;
@@ -81,6 +87,12 @@ public class Onekingdown {
         NeoForge.EVENT_BUS.addListener(KingdomEvents::onBlockPlace);
         NeoForge.EVENT_BUS.addListener(KingdomEvents::onRegisterCommands);
 
+        // Registro do sistema de invasoes
+        NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) ->
+                InvasionCommand.register(event.getDispatcher()));
+        NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post event) ->
+                InvasionManager.tick(event.getServer().overworld()));
+
         modEventBus.addListener(this::addCreative);
     }
 
@@ -106,6 +118,7 @@ public class Onekingdown {
         @SubscribeEvent
         public static void onRegisterKeys(RegisterKeyMappingsEvent event) {
             KingdomHudOverlay.onRegisterKeyMappings(event);
+            KingdomMinimapOverlay.onRegisterKeyMappings(event);
         }
 
         @SubscribeEvent
@@ -119,6 +132,9 @@ public class Onekingdown {
             LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
             NeoForge.EVENT_BUS.addListener(KingdomHudOverlay::onRenderGui);
             NeoForge.EVENT_BUS.addListener(KingdomHudOverlay::onClientTick);
+            NeoForge.EVENT_BUS.addListener(KingdomMinimapOverlay::onRenderGui);
+            NeoForge.EVENT_BUS.addListener(KingdomMinimapOverlay::onClientTick);
+            NeoForge.EVENT_BUS.addListener(WorldMapCache::onClientTick);
         }
     }
 }

@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.mojang.logging.LogUtils;
 import grouponekingdown.onekingdown.Config;
+import grouponekingdown.onekingdown.invasion.InvasionManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -184,6 +185,11 @@ public class KingdomManager {
             player.sendSystemMessage(Component.literal(
                     "§6§l[OneKingdown] EVOLUCAO! Castelo e construcoes atualizados para o Tier " + kingdom.currentTier + "!"
             ));
+            InvasionManager.onCastleTierReached(
+                    overworld,
+                    new BlockPos(kingdom.centerX, kingdom.centerY, kingdom.centerZ),
+                    kingdom.currentTier
+            );
         }
 
         sendHudSnapshot(overworld, player, kingdom);
